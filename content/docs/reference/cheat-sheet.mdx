@@ -1,0 +1,133 @@
+---
+title: Shipstern Cheat Sheet
+sidebarTitle: Cheat Sheet
+description: "The Shipstern API on one page: dependencies, config, builder, handlers, prefilters and run modes."
+llmsDescription: One-page quick reference for Shipstern 0.13.0. Lists the minimal Cargo dependencies, a Shipstern.toml skeleton for the Yellowstone gRPC source, the Runtime builder methods per update kind (account, instruction, transaction, block_meta, block_footer, block, slot, metrics), the Handler trait signature and a generic logging handler, the Parser trait, PrefilterBuilder methods for accounts, transactions, slots, block metas and block footers, FilterPipeline, RuntimeHandle methods for live filter updates, run versus try_run versus run_async, metric name pattern, and RUST_LOG settings.
+---
+
+This page lists fragments for quick lookup, not complete programs. The [quickstart](/docs/get-started/quickstart) has a complete binary.
+
+## Dependencies
+
+```toml title="Cargo.toml"
+[dependencies]
+rustls = "0.23"
+shipstern = "0.13.0"                          # add features = ["prometheus"] for metrics
+shipstern-yellowstone-grpc-source = "0.13.0"  # or another source
+shipstern-spl-token-parser = "0.13.0"         # one crate per program
+toml = "0.8"
+```
+
+## Config
+
+```toml title="Shipstern.toml"
+[source]
+endpoint = "https://yellowstone.example.com"   # required
+x-token = "<X-TOKEN>"                          # if the endpoint needs one
+timeout = 60                                   # required, seconds
+commitment-level = "confirmed"                 # processed | confirmed | finalized
+
+[buffer]                                       # optional
+jobs = 8                                       # default: number of CPUs
+sources-channel-size = 100                     # default: 100
+```
+
+## Runtime
+
+```rust
+rustls::crypto::aws_lc_rs::default_provider().install_default().expect("crypto provider"); // first line of main
+
+shipstern::Runtime::builder()
+    .account(Pipeline::new(AccountParser, [Logger]))          // AccountUpdate
+    .instruction(Pipeline::new(InstructionParser, [Logger]))  // InstructionUpdate
+    // .transaction(..) .block_meta(..) .block_footer(..) .block(..) .slot(..)
+    // .metrics(prometheus::Registry::new())                  // feature "prometheus"
+    .build::<YellowstoneGrpcSource>(config)                   // or try_build::<S>(config) -> Result
+    .run();                                                    // or run_async().await
+```
+
+| Call | Tokio | On fatal error |
+| --- | --- | --- |
+| `run()` | creates one | exits the process |
+| `try_run()` | creates one | returns `Err` |
+| `run_async().await` | uses the current runtime | exits the process |
+| `try_run_async().await` | uses the current runtime | returns `Err` |
+
+## Handler
+
+```rust
+#[derive(Debug)]
+pub struct Logger;
+
+impl<V: std::fmt::Debug + Sync, R: Sync> shipstern::Handler<V, R> for Logger {
+    async fn handle(&self, value: &V, _raw: &R) -> shipstern::HandlerResult<()> {
+        tracing::info!(?value);
+        Ok(())
+    }
+}
+```
+
+`V` is the parser's output, `R` its input (`InstructionUpdate`, `AccountUpdate`, ...). Handlers in one pipeline run concurrently.
+
+## Parser
+
+```rust
+impl Parser for MyParser {
+    type Input = SlotUpdate;
+    type Output = SlotUpdate;
+    fn id(&self) -> Cow<'static, str> { "my_crate::MyParser".into() }
+    fn prefilter(&self) -> Prefilter { Prefilter::builder().slots().build().unwrap() }
+    async fn parse(&self, v: &SlotUpdate) -> ParseResult<SlotUpdate> { Ok(v.clone()) }
+}
+```
+
+Return `Err(ParseError::Filtered)` to skip an update without running handlers or logging an error.
+
+## Prefilters
+
+| Want | Builder |
+| --- | --- |
+| Accounts owned by a program | `.account_owners([program])` |
+| Specific accounts | `.accounts([a, b])` |
+| Accounts of one size, or with given bytes at an offset | `.account_filters([AccountFilter::DataSize(165)])` (max 4) |
+| Transactions with **any** of these accounts | `.transaction_accounts_include([a, b])` |
+| Transactions with **all** of these accounts | `.transaction_accounts([a, b])` |
+| Drop transactions touching an account | `.transaction_accounts_exclude([a])` |
+| No vote transactions | `.transaction_vote(false)` |
+| Slots / block metas | `.slots()` / `.block_metas()` |
+| Block footers, with or without vote certificates | `.block_footers(include_certificates)` |
+
+To add conditions to one pipeline, use `shipstern::filter_pipeline::FilterPipeline`. It panics if the extra prefilter is invalid.
+
+```rust
+FilterPipeline::new(InstructionParser, [Logger], Prefilter::builder().transaction_accounts_include([mint]))
+```
+
+## Live filter updates (gRPC only)
+
+```rust
+let handle = runtime.handle();               // Runtime<YellowstoneGrpcSource>, before run
+handle.update_filters(|f| f.merge(id, extra))?;
+handle.send_filter_update(filters)?;         // replace everything
+handle.reset_filters()?;                     // back to the start
+// instruction parsers share the key shipstern::instruction::InstructionPipeline::ID
+```
+
+## Metrics and logs
+
+| Thing | Value |
+| --- | --- |
+| Counter names | `shipstern_{accounts,transactions,block_metas,block_footers,block,slots}_{received,successful,parsing_errors,handler_errors}`; `shipstern_instructions_*` has no `received` counter |
+| HTTP endpoint | None. Push the registry, or serve it from the application. |
+| Normal logs | `RUST_LOG=info` |
+| Debug logs from Shipstern crates, and the `shipstern.parse` and `shipstern.handle` spans | `RUST_LOG=info,shipstern=debug` |
+
+## Known issues in 0.13.0
+
+- `try_build::<S>(config)?` does not convert into `anyhow::Error`. See [Errors](/docs/reference/errors#buildererror).
+
+## See also
+
+- [Prefilters](/docs/filtering/prefilters): composition and merge rules.
+- [Delivery and ordering](/docs/runtime/delivery): handler retries and durable checkpoints.
+- [Configuration](/docs/reference/configuration): full source and buffer settings.

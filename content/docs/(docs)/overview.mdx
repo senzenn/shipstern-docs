@@ -1,0 +1,39 @@
+---
+title: Shipstern Docs Overview
+sidebarTitle: Overview
+description: Every part of Shipstern, from the runtime to sources, parsers, filtering, outputs, observability and testing.
+llmsDescription: Landing page for the Docs tab of the Shipstern developer docs. Links to the runtime (builder, run modes, worker pool, shutdown, block footer pipelines), sources (Yellowstone gRPC, Fumarole, Solana RPC, snapshot, Jetstreamer, preconfirmations from Triton Harmonic and BAM), parsers (built-in program parsers and code generation from Anchor and Codama IDLs), filtering (prefilters, FilterPipeline and live filter updates through RuntimeHandle), outputs (Kafka and gRPC), delivery and ordering, observability (Prometheus metrics and tracing) and testing (shipstern-mock fixtures).
+---
+
+import { ArrowRightFromLine, Binary, Cable, ChartNoAxesCombined, Cog, ListChecks, ListFilter } from 'lucide-react';
+
+These pages document each part of Shipstern. For a first pipeline, start with the [quickstart](/docs/get-started/quickstart) and [core concepts](/docs/get-started/core-concepts).
+
+<Cards>
+  <Card title="Runtime" icon={<Cog />} href="/docs/runtime">
+    Register pipelines, control concurrency and manage delivery, ordering and shutdown.
+  </Card>
+  <Card title="Sources" icon={<Cable />} href="/docs/sources">
+    Stream live data from Yellowstone gRPC or Fumarole, receive preconfirmed transactions, load current accounts from RPC or a snapshot, or replay history from Old Faithful.
+  </Card>
+  <Card title="Parsers" icon={<Binary />} href="/docs/parsers">
+    Use the built-in program parsers or generate one from an Anchor or Codama IDL.
+  </Card>
+  <Card title="Filtering" icon={<ListFilter />} href="/docs/filtering/prefilters">
+    Build prefilters at startup or change live gRPC subscriptions while the runtime runs.
+  </Card>
+  <Card title="Outputs" icon={<ArrowRightFromLine />} href="/docs/outputs">
+    Deliver parsed data over gRPC or write complete, ordered slots to Kafka.
+  </Card>
+  <Card title="Observability" icon={<ChartNoAxesCombined />} href="/docs/observability/metrics">
+    Count updates per kind with Prometheus, and trace parsing and handling with debug-level spans.
+  </Card>
+  <Card title="Testing" icon={<ListChecks />} href="/docs/testing">
+    Test parsers against account and transaction fixtures fetched from RPC and cached on disk.
+  </Card>
+</Cards>
+
+## See also
+
+- [Cheat sheet](/docs/reference/cheat-sheet): the main API calls and config keys on one page.
+- [Glossary](/docs/reference/glossary): definitions of the terms these pages use.

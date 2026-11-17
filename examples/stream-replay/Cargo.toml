@@ -1,0 +1,13 @@
+[workspace]
+
+[package]
+name = "stream-replay"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+shipstern-block-coordinator = { git = "https://github.com/solana-rpc/shipstern", tag = "v0.13.0" }
+shipstern-yellowstone-grpc-source = { git = "https://github.com/solana-rpc/shipstern", tag = "v0.13.0" }
+tokio = { version = "1", features = ["sync"] }
+yellowstone-grpc-proto = { version = "~14.0.1", default-features = false }

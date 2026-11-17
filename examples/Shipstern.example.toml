@@ -1,0 +1,19 @@
+# Sample config for the examples. Copy it to Shipstern.toml, then set the endpoint and token.
+# Shipstern.toml holds credentials. Do not commit it.
+# Every key and default: content/docs/reference/configuration.mdx
+
+[source]
+# examples/pick-a-source only: uncomment to select the source.
+# kind = "yellowstone-grpc"
+endpoint = "https://yellowstone.example.com"  # Yellowstone gRPC URL, not a JSON-RPC URL
+x-token = "<X-TOKEN>"
+timeout = 60                                  # seconds, required
+# commitment-level = "confirmed"              # processed, confirmed or finalized
+
+# [buffer]
+# jobs = 8                                    # default: number of CPUs
+# sources-channel-size = 100
+
+# examples/stream-server only. This address is the default.
+# [grpc]
+# address = "[::]:3030"

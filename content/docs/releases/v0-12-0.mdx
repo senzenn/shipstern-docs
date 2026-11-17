@@ -1,0 +1,91 @@
+---
+title: Shipstern 0.12.0 Release Notes
+sidebarTitle: 0.12.0
+description: A one-method SourceTrait with source-free builders, and Anchor IDLs read directly by include_shipstern_parser!.
+llmsDescription: "Release notes for Shipstern 0.12.0, released 2026-10-11. shipstern and shipstern-core reduce SourceTrait to one method, connect(&self, ctx: SourceContext), and RuntimeBuilder and StreamBuilder no longer take a source type parameter, so Runtime::<S>::builder()...build(config) becomes Runtime::builder()...build::<S>(config) (breaking for custom sources and builder callers). Box<dyn SourceTrait> is a source. shipstern-proc-macro accepts raw Anchor IDLs (spec 0.1.0, Anchor 0.30 and later) and legacy Anchor IDLs through the new shipstern-codama-from-anchor crate, generates map and set fields as Vecs, and fixes event payload types, duplicate self-CPI and log events, discriminator width, fixed option padding and missing fixed-address accounts. shipstern-core adds Yellowstone cuckoo filters and token_accounts to prefilters (breaking for prefilter struct literals) and drops repeated account filters before the limit of four. shipstern-spl-token-extensions-parser no longer decodes other programs' instructions. shipstern-jetstream-source stays at 0.9.0 on crates.io and shipstern-kafka-sink is not published. Includes an upgrade impact table and upgrade steps."
+---
+
+<Update label="2026-10-11" version="v0.12.0" tags={["Minor", "Breaking", "Added", "Fixed"]}>
+
+This release changes source selection and the `SourceTrait` interface. `include_shipstern_parser!` now reads an Anchor IDL directly. Calls to `Runtime::<S>::builder()` and custom `SourceTrait` implementations need code changes.
+
+## Upgrade impact
+
+| Who is affected | What to do |
+| --- | --- |
+| Code that calls `Runtime::<S>::builder()` or `shipstern_stream::Server::<S>::builder()` | Name the source at build time: `Runtime::builder()...build::<S>(config)`. `try_build` takes the same turbofish. `try_build_with(source, buffer)` takes a source value instead of a config. |
+| Custom sources that implement `SourceTrait` | Delete `type Config` and `new`. Move any `connect_with_filter_updates` body into `connect`. Destructure the context with `let SourceContext { filters, tx, .. } = ctx;` and return the exit status instead of sending it. Add a `FromConfig` impl if the source is built from a config file. |
+| Generic code bounded on `S: SourceTrait` that names `S::Config` | Bound on `S: FromConfig` instead. |
+| Callers of `SolanaAccountsRpcSource::new` | Use `FromConfig::from_config`. |
+| Code that builds `AccountPrefilter`, `TransactionPrefilter` or `BlockPrefilter` with a struct literal | Add `..Default::default()`. |
+| IDL-generated parsers with map or set fields, or with the `proto` feature | Expect new field types and message names. See [Changed](#changed) and [Fixed](#fixed). |
+| `shipstern-jetstream-source` or `shipstern-kafka-sink` users | Take every Shipstern crate from the `v0.12.0` git tag. crates.io has `shipstern-jetstream-source` only up to 0.9.0, because it depends on Jetstreamer from git, and does not have `shipstern-kafka-sink`. |
+| Everyone else | Bump every `shipstern*` crate to `0.12.0`. |
+
+## Highlights
+
+- `include_shipstern_parser!` reads an Anchor IDL file as is: Anchor 0.30 and later, or a legacy IDL with the program id in `metadata.address`. No prior conversion to Codama is needed.
+- One set of pipelines builds against any source. A binary can pick its source from its config at startup with `Box<dyn SourceTrait>`.
+- Prefilters can send account sets as Yellowstone cuckoo filters and pass `token_accounts` through.
+- A program event that appears both as a self-CPI and as a log line is returned once. Generated parsers read discriminators, fixed options and fixed-address accounts correctly.
+
+## Added
+
+- `shipstern-proc-macro`: accepts Anchor IDLs with spec `0.1.0` and legacy Anchor IDLs, through the new `shipstern-codama-from-anchor` crate. A legacy IDL needs the program id in `metadata.address`. See [IDL code generation](/docs/parsers/idl-codegen). ([#337](https://github.com/solana-rpc/shipstern/pull/337))
+- `shipstern`: `SourceTrait` is object safe. `Box<dyn SourceTrait>` and `Box<dyn FilterUpdateSource>` are sources, and `Runtime` and `stream::Server` default their source parameter to `Box<dyn SourceTrait>`. ([#308](https://github.com/solana-rpc/shipstern/pull/308))
+- `shipstern-core`: `PrefilterBuilder::account_cuckoo`, `transaction_cuckoo_accounts_include` and `block_cuckoo_accounts_include` send account sets as Yellowstone cuckoo filters. Merging unions the sets. richat 13.0.2 accepts only the account variant: it rejects the transaction and block fields with `InvalidArgument`, which stops the source. ([#334](https://github.com/solana-rpc/shipstern/pull/334))
+- `shipstern-core`: `TransactionPrefilter::token_accounts` and `PrefilterBuilder::transaction_token_accounts` pass Yellowstone's `token_accounts` through. When two prefilters disagree on the mode, the merge takes the wider one and drops `accounts_exclude`. ([#339](https://github.com/solana-rpc/shipstern/pull/339))
+
+## Changed
+
+- **Breaking:** `SourceTrait` has one method, `connect(&self, ctx: SourceContext) -> Result<SourceExitStatus, Error>`. The `Config` associated type, `new`, `connect_with_filter_updates` and the `oneshot` exit-status sender are gone. `SourceContext` is `#[non_exhaustive]` and carries the filters, the update sender and the filter update slot. An `Err` from `connect` now ends the run with that error instead of `ClientHangup`. ([#308](https://github.com/solana-rpc/shipstern/pull/308))
+- **Breaking:** `RuntimeBuilder` and `StreamBuilder` take no source type parameter. `build(config)` and `try_build(config)` need `S: FromConfig` and name the source with a turbofish. ([#308](https://github.com/solana-rpc/shipstern/pull/308))
+- `FilterUpdateSource` stays a marker trait, and nothing checks that a source which implements it reads `ctx.filter_updates`. If the source does not read it, `RuntimeHandle::update_filters` returns `Ok` and the update is never applied, with no error or log. ([#308](https://github.com/solana-rpc/shipstern/pull/308))
+- `shipstern-solana-rpc-source`: `SolanaAccountsRpcSource::new` is removed. The Fumarole, Solana RPC and Jetstream sources return `Err` from `connect` when they fail, instead of sending `SourceExitStatus::Error` or `SourceExitStatus::StreamError`. `shipstern-jetstream-source` streams inside `connect` instead of in a detached task. ([#308](https://github.com/solana-rpc/shipstern/pull/308))
+- **Breaking:** `AccountPrefilter` gained `cuckoo_accounts`, and `TransactionPrefilter` and `BlockPrefilter` gained `cuckoo_accounts_include`. ([#334](https://github.com/solana-rpc/shipstern/pull/334))
+- `shipstern-proc-macro`: map fields generate as `Vec<{Base}Entry>` with `key` and `value` instead of `Vec<u8>`. Set fields generate as a `Vec` of their item, which proto schemas emit as `repeated`. ([#342](https://github.com/solana-rpc/shipstern/pull/342))
+- `shipstern-core`: when two prefilters name the same comparison and one of them repeats it, the merge keeps the comparison instead of dropping it and widening the filter. ([#333](https://github.com/solana-rpc/shipstern/pull/333))
+
+## Fixed
+
+- `shipstern-spl-token-extensions-parser`: the instruction parser no longer decodes instructions of other programs, such as SPL Token, as Token-2022 output. ([#351](https://github.com/solana-rpc/shipstern/pull/351))
+- `shipstern-proc-macro`: with `program-events`, an event that a program emits both as a self-CPI and as a `Program data:` log line is returned once, not twice. ([#350](https://github.com/solana-rpc/shipstern/pull/350))
+- `shipstern-proc-macro`: a type that links to an event's payload now compiles and decodes, and an event that holds another event's payload is no longer skipped. With `program-events`, only fields inside event wrappers take `Evt` names, and a linked event's own message is named `Evt{Name}`. ([#343](https://github.com/solana-rpc/shipstern/pull/343))
+- `shipstern-proc-macro`: generated parsers read number discriminators at their declared width, skip the bytes after a fixed option's `None` tag, return the ambiguity error when two instructions with the same discriminator share an account count, name instruction proto messages `Ix{Name}`, and derive serde on the account wrapper. ([#342](https://github.com/solana-rpc/shipstern/pull/342))
+- `shipstern-proc-macro`: an instruction that leaves off a trailing account with a fixed address now parses with that address, unless the account list looks shifted. ([#347](https://github.com/solana-rpc/shipstern/pull/347))
+- `shipstern-core`: `Prefilter::builder().account_filters(..)` drops repeated comparisons before it checks the limit of four, so a config that repeats one is no longer refused. ([#333](https://github.com/solana-rpc/shipstern/pull/333))
+
+## Upgrade
+
+```toml title="Cargo.toml"
+[dependencies]
+shipstern = "0.12.0"
+shipstern-yellowstone-grpc-source = "0.12.0"
+# ...and every other shipstern* dependency
+```
+
+Move the source type from the builder to the build call:
+
+```diff title="src/main.rs"
+-shipstern::Runtime::<YellowstoneGrpcSource>::builder()
++shipstern::Runtime::builder()
+     .account(Pipeline::new(AccountParser, [Logger]))
+-    .build(config)
++    .build::<YellowstoneGrpcSource>(config)
+     .run();
+```
+
+```bash
+cargo update
+cargo build
+```
+
+For custom `SourceTrait` implementations, follow the steps in the upgrade impact table.
+
+## Links
+
+- [Full changelog entry](https://github.com/solana-rpc/shipstern/blob/v0.12.0/CHANGELOG.md#0120---2026-10-11)
+- [GitHub release](https://github.com/solana-rpc/shipstern/releases/tag/v0.12.0)
+- [Compare v0.11.0...v0.12.0](https://github.com/solana-rpc/shipstern/compare/v0.11.0...v0.12.0)
+
+</Update>

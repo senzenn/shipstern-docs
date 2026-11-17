@@ -1,0 +1,136 @@
+---
+title: Install Shipstern
+sidebarTitle: Installation
+description: The Rust toolchain, crates and system packages a Shipstern project needs.
+llmsDescription: How to install Shipstern, the Rust framework for Solana data pipelines. Covers the minimum Rust version (1.97.1, required by the Agave 4.3.2 crates), adding the shipstern runtime crate plus a source crate and parser crates from crates.io or from a git tag, installing the rustls crypto provider at startup, the system packages (C compiler, pkg-config, OpenSSL headers) with install commands for macOS, Debian/Ubuntu, RHEL/Fedora and Arch, the extra packages for the Kafka sink (CMake, zlib), and the requirements for connecting to a Yellowstone gRPC (Dragon's Mouth) endpoint.
+---
+
+A Shipstern project is an ordinary Rust binary. Add the runtime crate, one source crate and the parser crates for the target programs.
+
+## Requirements
+
+| Requirement | Version or value | Why |
+| --- | --- | --- |
+| Rust | 1.97.1 or newer | The Agave 4.3.2 crates under `shipstern-mock` and the Solana RPC, snapshot and Jetstreamer sources require it |
+| A data source | Yellowstone gRPC endpoint and token, or another [source](/docs/sources) | Shipstern does not run a Solana node |
+| Docker (optional) | Any recent version | Only for the Prometheus example stack |
+
+Check the toolchain, and update it if `rustc` reports a version below 1.97.1:
+
+```bash
+rustc --version
+rustup update stable
+```
+
+## Add the crates
+
+Create a binary project, or use an existing one:
+
+```bash
+cargo new my-indexer
+cd my-indexer
+```
+
+Every project needs the runtime (`shipstern`) and one source crate. Add one parser crate per program to decode. Replace the `[dependencies]` table in `Cargo.toml`:
+
+<Tabs items={['crates.io', 'Git tag']}>
+<Tab value="crates.io">
+
+```toml title="Cargo.toml"
+[dependencies]
+shipstern = "0.13.0"
+shipstern-yellowstone-grpc-source = "0.13.0"
+shipstern-spl-token-parser = "0.13.0"
+```
+
+</Tab>
+<Tab value="Git tag">
+
+```toml title="Cargo.toml"
+[dependencies]
+shipstern = { git = "https://github.com/solana-rpc/shipstern", tag = "v0.13.0" }
+shipstern-yellowstone-grpc-source = { git = "https://github.com/solana-rpc/shipstern", tag = "v0.13.0" }
+shipstern-spl-token-parser = { git = "https://github.com/solana-rpc/shipstern", tag = "v0.13.0" }
+```
+
+</Tab>
+</Tabs>
+
+Keep every `shipstern*` crate on the same version. The crates share types such as `Prefilter` and `InstructionUpdate`, and two versions in one build produce two incompatible copies of those types.
+
+See [Crates](/docs/reference/crates) for the full list of sources, parsers and output crates.
+
+## Install the rustls crypto provider
+
+Install a crypto provider as the first statement of `main`, before building the runtime. The gRPC sources connect over TLS with `rustls`, and Shipstern does not install a provider itself. The gRPC examples in the Shipstern repository do the same:
+
+```rust title="src/main.rs"
+rustls::crypto::aws_lc_rs::default_provider()
+    .install_default()
+    .expect("Failed to install rustls crypto provider");
+```
+
+Add `rustls = "0.23"` to the dependencies for this call. Without a provider, the process can panic with `Could not automatically determine the process-level CryptoProvider` when the gRPC client sets up TLS.
+
+## System packages
+
+Some dependencies build C code, so the build machine needs a C compiler. On Linux, the TLS stack also needs `pkg-config` and the OpenSSL headers. Install them for the build machine's system:
+
+<Tabs groupId="os" persist items={['macOS', 'Debian / Ubuntu', 'RHEL / Fedora', 'Arch']}>
+<Tab value="macOS">
+
+```bash
+xcode-select --install
+```
+
+</Tab>
+<Tab value="Debian / Ubuntu">
+
+```bash
+sudo apt-get update
+sudo apt-get install -y build-essential pkg-config libssl-dev
+```
+
+</Tab>
+<Tab value="RHEL / Fedora">
+
+```bash
+sudo dnf install -y gcc gcc-c++ make pkgconf-pkg-config openssl-devel
+```
+
+</Tab>
+<Tab value="Arch">
+
+```bash
+sudo pacman -S --needed base-devel openssl
+```
+
+</Tab>
+</Tabs>
+
+`shipstern-kafka-sink` also needs CMake and the zlib headers, because librdkafka compiles from source. The [Kafka sink](/docs/outputs/kafka-sink#install-the-build-dependencies) page lists them.
+
+The build does not need `protoc`. The crates that use it ship their own copy.
+
+## Check the build
+
+```bash
+cargo build
+```
+
+A build that finishes without errors confirms the toolchain, crates and system packages.
+
+## Connect to a source
+
+The [quickstart](/docs/get-started/quickstart) uses the Yellowstone gRPC source, which needs:
+
+- An endpoint URL for a Dragon's Mouth (Yellowstone gRPC) server, self-hosted or from a provider. A Solana JSON-RPC URL does not serve this stream.
+- An `x-token` if the endpoint requires authentication.
+
+Set both in `Shipstern.toml`, as [Configuration](/docs/get-started/configuration) shows.
+
+## See also
+
+- [Quickstart](/docs/get-started/quickstart): build and run a first pipeline.
+- [Crates](/docs/reference/crates): every crate in the workspace and what it does.
+- [Troubleshooting](/docs/get-started/troubleshooting#build): build failures and their fixes.

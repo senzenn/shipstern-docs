@@ -1,0 +1,62 @@
+---
+title: Shipstern 0.10.0 Release Notes
+sidebarTitle: "0.10.0"
+description: Agave 4.2 and Transaction V1 support, with a new minimum Rust version of 1.93.
+llmsDescription: "Release notes for Shipstern 0.10.0, released 2026-09-10. Moves the Solana/Agave dependency stack from 3.x to 4.2.2 for Transaction V1 (SIMD-0385), raising the minimum supported Rust version from 1.90 to 1.93. Bumps spl-token-2022 from 10 to 11 (PermissionedBurn authority type, MaybeNull<Address>). Behaviour changes: UpdateGroupAuthority.new_authority reports None instead of the all-zero key; shipstern.parse and shipstern.handle spans become debug; the snapshot source no longer takes an exclusive RocksDB lock and emits accounts in no particular order; the RPC source can now fail on a malformed owner or undecodable data. Jetstreamer fixes for V1 messages and DeactivatedStake rewards. shipstern-jetstream-source now depends on Jetstreamer from git and is not on crates.io at this version."
+---
+
+<Update label="2026-09-10" version="v0.10.0" tags={["Minor", "Breaking", "Behaviour change", "Fixed"]}>
+
+Shipstern now builds on the Agave 4.2 crates, which can represent Transaction V1 (SIMD-0385) messages. The upgrade needs Rust 1.93.
+
+## Upgrade impact
+
+| Who is affected | What to do |
+| --- | --- |
+| Everyone | Use Rust 1.93 or newer (`rustup update stable`). |
+| Projects that pass their own `solana-*` types to or from Shipstern | Move those dependencies to the 4.x line Shipstern uses, so both sides share one copy of the types. |
+| Code reading `UpdateGroupAuthority.new_authority` (Token-2022) | Handle `None` where it previously returned the all-zero pubkey. |
+| Log filters or dashboards on `shipstern.parse` / `shipstern.handle` at `info` | Enable `debug` for the `shipstern` target to keep seeing them. |
+| Users of the snapshot source who relied on pubkey-sorted output | Sort in the application; accounts now arrive in no particular order. |
+| `shipstern-jetstream-source` users | Take every Shipstern crate from the `v0.10.0` git tag. The crate now depends on Jetstreamer from git, so crates.io has it only up to 0.9.0. |
+
+## Highlights
+
+- The Agave 4.2 crates can represent Transaction V1 messages. The Jetstream source converts them and keeps their inline compute budget.
+- Token-2022's `PermissionedBurn` authority type is recognised.
+
+## Changed
+
+- **Breaking:** Solana/Agave dependencies move from `3.x` to `4.2.2`. MSRV rises from 1.90 to 1.93. `enable_tx_v1` is active on devnet and testnet and staged, not yet active, on mainnet-beta.
+- **Breaking:** `spl-token-2022` 10 to 11. Adds the `PermissionedBurn` extension and authority type (proto `AuthorityType` value 17) and replaces `OptionalNonZeroPubkey` with `MaybeNull<Address>`. `NativeExtensionData` still rejects `PermissionedBurn`.
+- **Behaviour change:** `UpdateGroupAuthority.new_authority` reports `None` instead of the all-zero pubkey. `InitializeGroup.update_authority` already behaved this way.
+- `shipstern.parse` and `shipstern.handle` spans drop from `info` to `debug`. ([#313](https://github.com/solana-rpc/shipstern/pull/313))
+- `shipstern-solana-snapshot-source`: loads banks with `try_load_bank_forks_from_snapshot`. It no longer takes an exclusive RocksDB lock on the ledger directory, fails with a clear error when the snapshot directory has nothing loadable, and emits start-up accounts in no particular order.
+- `shipstern-solana-rpc-source`: uses `get_program_ui_accounts_with_config`, so a malformed owner or undecodable account data now fails the source.
+- `shipstern-bpf-loader-parser`: `solana-loader-v3-interface` 7 drops `Migrate` and `ExtendProgramChecked`, which the parser never decoded. An unknown discriminant now fails earlier, in `UpgradeableLoaderInstruction::try_from_slice`.
+- `shipstern-jetstream-source`: `TransactionStatusMeta.err` is serialised with `wincode` instead of `bincode`. The encoded bytes do not change.
+- `shipstern-jetstream-source`: takes `jetstreamer-firehose` and `jetstreamer-utils` from the Jetstreamer git repository (`main` branch) instead of crates.io `0.7`.
+
+## Fixed
+
+- `shipstern-jetstream-source`: converts `VersionedMessage::V1` instead of failing, and keeps its inline budget. ([#310](https://github.com/solana-rpc/shipstern/issues/310))
+- `shipstern-jetstream-source`: maps the new `DeactivatedStake` reward type instead of reporting `Unspecified`. ([#310](https://github.com/solana-rpc/shipstern/issues/310))
+- `shipstern-jetstream-source`: forwards the exact `commission_bps`, since Agave 4.2 removed the percentage field.
+
+## Upgrade
+
+```bash
+rustup update stable    # 1.93 or newer
+cargo update
+cargo build
+```
+
+When handling Token-2022 `UpdateGroupAuthority`, check `new_authority` for `None` instead of comparing against the all-zero pubkey.
+
+## Links
+
+- [Changelog entry](https://github.com/solana-rpc/shipstern/blob/v0.12.0/CHANGELOG.md#0100---2026-09-10)
+- [GitHub release](https://github.com/solana-rpc/shipstern/releases/tag/v0.10.0)
+- [Compare v0.9.0...v0.10.0](https://github.com/solana-rpc/shipstern/compare/v0.9.0...v0.10.0)
+
+</Update>

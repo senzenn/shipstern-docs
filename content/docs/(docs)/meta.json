@@ -1,0 +1,16 @@
+{
+  "title": "Docs",
+  "description": "Runtime, sources, parsers, filtering and observability",
+  "icon": "BookOpen",
+  "root": true,
+  "pages": [
+    "overview",
+    "runtime",
+    "sources",
+    "parsers",
+    "filtering",
+    "outputs",
+    "observability",
+    "testing"
+  ]
+}

@@ -1,0 +1,92 @@
+---
+title: Shipstern Versions and Upgrades
+sidebarTitle: Versions and Upgrades
+description: How to read Shipstern version numbers, release tags and changelog markers.
+llmsDescription: How Shipstern versions work and how to upgrade. Shipstern is pre-1.0 and follows Semantic Versioning as Cargo applies it to 0.x crates, so a minor bump such as 0.11 to 0.12 may contain breaking changes and a patch bump such as 0.12.0 to 0.12.1 is semver-compatible. Explains that all crates share one version, that shipstern-jetstream-source (0.10.0 and later) and shipstern-kafka-sink are not on crates.io, the release tags (vX.Y.Z), the changelog tags used on this site (Breaking, Behaviour change, Fixed, Added, Deprecated, Security, Patch, Minor), the minimum supported Rust version (1.97.1 since 0.13.0, 1.93 from 0.10.0 to 0.12.0), and the steps to upgrade a project.
+---
+
+## Version numbers
+
+Shipstern is pre-1.0. It follows [Semantic Versioning](https://semver.org/) as Cargo applies it to `0.x` crates:
+
+| Bump | Example | What it can contain |
+| --- | --- | --- |
+| Minor | `0.11.0` to `0.12.0` | Breaking changes, new features and fixes |
+| Patch | `0.12.0` to `0.12.1` | Changes Cargo treats as compatible; `cargo update` picks them up |
+
+Every crate in the workspace shares one version, and each release is tagged `vX.Y.Z` in [`solana-rpc/shipstern`](https://github.com/solana-rpc/shipstern/tags). Keep every `shipstern*` dependency on the same version.
+
+Two crates are not on crates.io at the current version. `shipstern-jetstream-source` has depended on Jetstreamer from git since 0.10.0, so crates.io stops at 0.9.0. `shipstern-kafka-sink` is not published. A project that uses either crate takes every Shipstern crate from the release tag, so the build has only one copy of each crate:
+
+```toml title="Cargo.toml"
+[dependencies]
+shipstern = { git = "https://github.com/solana-rpc/shipstern", tag = "v0.13.0" }
+shipstern-jetstream-source = { git = "https://github.com/solana-rpc/shipstern", tag = "v0.13.0" }
+```
+
+## Changelog tags
+
+On the [changelog](/docs/releases), each release has a tag for its type, and each entry in its notes has a tag for its impact.
+
+| Tag | Meaning |
+| --- | --- |
+| <Tag>Minor</Tag> | A `0.x.0` release |
+| <Tag>Patch</Tag> | A `0.x.y` release with `y` above 0 |
+| <Tag>Breaking</Tag> | Code that compiled before may not compile, or the wire format changed |
+| <Tag>Behaviour change</Tag> | Code still compiles, but a value or default is different |
+| <Tag>Added</Tag> | New API or feature |
+| <Tag>Fixed</Tag> | Bug fix |
+| <Tag>Deprecated</Tag> | Still works, and may be removed in a later release |
+| <Tag>Security</Tag> | Fixes a vulnerability |
+
+Some changes break only one style of code. A new field on a public struct that is not `#[non_exhaustive]` breaks code that builds the struct with a literal. Code that uses a builder or `..Default::default()` still compiles. The upgrade impact table in each release's notes lists these changes.
+
+## Minimum supported Rust version
+
+| Versions | MSRV | Reason |
+| --- | --- | --- |
+| 0.13.0 and later | 1.97.1 | Agave 4.3.2, under the mock, Solana RPC, snapshot and Jetstreamer crates, requires it. The release's `rust-toolchain.toml` pins it. |
+| 0.10.0 to 0.12.0 | 1.93 | Agave 4.2.2 requires it |
+| 0.9.x | 1.90 | |
+
+## Upgrade a project
+
+<Steps>
+<Step>
+
+### Read the upgrade impact tables
+
+Open the notes for every release between the installed version and the target, starting with the oldest. Each one lists who is affected and what to change.
+
+</Step>
+<Step>
+
+### Bump every crate together
+
+```toml title="Cargo.toml"
+[dependencies]
+shipstern = "0.13.0"
+shipstern-yellowstone-grpc-source = "0.13.0"
+shipstern-spl-token-parser = "0.13.0"
+```
+
+</Step>
+<Step>
+
+### Build and test
+
+```bash
+cargo update
+cargo build
+cargo test
+```
+
+Compile errors point at breaking API changes. Behaviour changes do not fail the build, so check them against the release notes.
+
+</Step>
+</Steps>
+
+## See also
+
+- [Changelog](/docs/releases): every release, newest first.
+- [Migrate from Yellowstone Vixen](/docs/releases/migrations/vixen-to-shipstern): the 0.8.0 rename.

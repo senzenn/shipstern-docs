@@ -1,0 +1,114 @@
+---
+title: Generate a Parser from the pump.fun IDL
+sidebarTitle: Parser from an IDL
+description: Parse pump.fun accounts and instructions from its Anchor IDL, with no hand-written decoding.
+llmsDescription: Guide to generating a Shipstern parser from a raw Anchor IDL with include_shipstern_parser!, using the pump.fun program (6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P) as the example. Covers fetching the spec 0.1.0 IDL from mainnet with anchor legacy-idl fetch (Anchor CLI 1.x), placing pump.json in the crate root, the Cargo dependencies, passing the Anchor IDL to the macro with no codama convert step (supported since 0.12.0), registering pump::AccountParser and pump::InstructionParser on a Yellowstone gRPC runtime, silencing the serde unexpected_cfgs warning, what the program prints, build failures such as Failed to load/parse IDL, and the proto feature. The program is compiled in CI against Shipstern 0.13.0.
+---
+
+Generate typed pump.fun parsers from the program's Anchor IDL at compile time, then stream its accounts and instructions. The same steps work for any Anchor program. A Shank program needs Codama JSON, as described in [IDL code generation](/docs/parsers/idl-codegen#get-the-idl).
+
+**Based on:** [`examples/idl-parser`](https://github.com/solana-rpc/shipstern/tree/v0.13.0/examples/idl-parser) in the Shipstern repository, which reads an older pump.fun IDL in Codama form. This guide passes the Anchor IDL to the macro directly, which Shipstern has supported since 0.12.0. Compiled against Shipstern 0.13.0.
+
+```mermaid
+flowchart LR
+    A[pump.json Anchor IDL] -->|include_shipstern_parser!| M[pump module]
+    M --> R[Runtime pipelines]
+```
+
+**Prerequisites:** a Cargo binary project with `Shipstern.toml` in its root, as in the [quickstart](/docs/get-started/quickstart#configure-the-source), and Anchor CLI 1.x to fetch the IDL.
+
+<Steps>
+<Step>
+
+### Fetch the Anchor IDL
+
+pump.fun publishes its IDL on chain. From the project root, fetch it next to `Cargo.toml`:
+
+```bash
+anchor legacy-idl fetch --provider.cluster mainnet -o pump.json 6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P
+```
+
+pump.fun stores the IDL in the older IDL account, so `anchor idl fetch` fails with `Account not found`. The file has `metadata.spec` set to `"0.1.0"`, which the macro reads with no conversion.
+
+</Step>
+<Step>
+
+### Add dependencies
+
+Replace the `[dependencies]` table in `Cargo.toml` and add the `[lints.rust]` table:
+
+```toml title="Cargo.toml"
+[dependencies]
+borsh = { version = "1", features = ["derive"] }
+clap = { version = "4.5", features = ["derive"] }
+rustls = "0.23"
+shipstern = "0.13.0"
+shipstern-core = "0.13.0"
+shipstern-parser = "0.13.0"
+shipstern-proc-macro = "0.13.0"
+shipstern-yellowstone-grpc-source = "0.13.0"
+toml = "0.8"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Generated code checks for a `serde` feature; declare the cfg to avoid a warning.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("serde"))'] }
+```
+
+The generated code imports `shipstern_core` and derives Borsh traits, so `shipstern-core` and `borsh` with `derive` are required.
+
+</Step>
+<Step>
+
+### Write the program
+
+Replace `src/main.rs`:
+
+<include cwd lang="rust" meta='title="src/main.rs"'>./examples/idl-parser/src/main.rs</include>
+
+| Part | What it does |
+| --- | --- |
+| `include_shipstern_parser!("pump.json")` | Reads the file relative to the crate root at compile time. The file has no top-level `kind` or `program` object, so the macro reads it as an Anchor IDL. |
+| `pump` module | Named after the IDL's `metadata.name` in snake_case. It holds `PROGRAM_ID`, `AccountParser`, `InstructionParser` and a type for each account, instruction and argument. |
+| `pump::AccountParser` | Its prefilter asks for accounts owned by `6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P`. |
+| `pump::InstructionParser` | Its prefilter asks for transactions that include the program. |
+| `Logger` | Prints every parsed value with `{:?}`. |
+
+</Step>
+<Step>
+
+### Run it
+
+From the project root:
+
+```bash
+RUST_LOG=info cargo run -- --config ./Shipstern.toml
+```
+
+The program prints one line per parsed value. Accounts print as `PumpAccount { account: BondingCurve(..) }`, and most are `BondingCurve` or `UserVolumeAccumulator`. Instructions print as `Instructions { instruction: Buy { .. } }`, with variants such as `Buy`, `Sell` and `CreateV2`. The program runs until `Ctrl+C`.
+
+</Step>
+</Steps>
+
+## Common failures
+
+| Symptom | Cause |
+| --- | --- |
+| `invalid compression flag: 32` repeats in the log | The server rejected the `x-token`. See [Troubleshooting](/docs/get-started/troubleshooting#invalid-compression-flag-32-repeats-twice-a-second). |
+| Build error `Failed to load/parse IDL from ".../pump.json": Failed to read file` | `pump.json` is not next to `Cargo.toml`. See [the troubleshooting entry](/docs/get-started/troubleshooting#include_shipstern_parser-fails-with-failed-to-loadparse-idl). |
+| Another build error that names an IDL item | The IDL has a construct the macro does not support. See [Build errors name the item](/docs/parsers/idl-codegen#build-errors-name-the-item). |
+| `unexpected_cfgs` warnings about `serde` | The `[lints.rust]` table is missing. |
+
+<Note>
+If any other crate in the build enables `shipstern-core/proto`, for example a built-in parser with its `proto` feature on, turn on the `proto` feature of `shipstern-proc-macro` and add `prost`, `prost-types` and `bs58`.
+</Note>
+
+## Decode events too
+
+The `program-events` feature of `shipstern-proc-macro` also decodes events such as `TradeEvent`, and changes what `InstructionParser` returns. [Decode pump.fun trade events](/docs/guides/decode-pump-fun-trade-events) covers it.
+
+## See also
+
+- [IDL code generation](/docs/parsers/idl-codegen): Anchor IDL limits, Codama JSON, events, serde and discriminator collisions.
+- [Decode pump.fun trade events](/docs/guides/decode-pump-fun-trade-events): the same IDL with `program-events`.
+- [Testing](/docs/testing): check the generated parser against devnet data.

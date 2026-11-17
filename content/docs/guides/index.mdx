@@ -1,0 +1,47 @@
+---
+title: Shipstern Guides
+sidebarTitle: All Guides
+description: Step-by-step tutorials for common Shipstern pipelines.
+llmsDescription: Index of Shipstern step-by-step guides, with what each one needs beyond the quickstart. Each guide builds a complete Rust binary compiled against Shipstern 0.13.0. Guides cover narrowing the SPL Token instruction stream to one mint with FilterPipeline (the recommended first guide), following one wallet's token moves with transaction_token_accounts, tracking thousands of accounts with a cuckoo filter, indexing several programs in one runtime (built-in instruction parsers require their program, so they are moved to the include set), a parent-chain checkpoint that resumes after a restart at confirmed commitment, an RPC backfill combined with a gRPC stream that starts first, acting on Triton preconfirmations and checking settlement by signature, a Postgres indexer with idempotent token-transfer writes and checkpoint limitations, generating parsers from the pump.fun Anchor IDL with include_shipstern_parser!, decoding pump.fun trade events with program-events, choosing the source from the config file at startup with Box<dyn SourceTrait>, pushing runtime metrics to a Prometheus Pushgateway, ordered Kafka output, and a gRPC stream server.
+---
+
+import { SquareTerminal } from 'lucide-react';
+
+## Start here
+
+Run the quickstart first. It checks the Yellowstone gRPC connection and creates the project and `Shipstern.toml` that every guide below reuses. An ordinary Solana JSON-RPC URL does not serve the gRPC subscription. For existing account state or historical transactions, [choose a source](/docs/sources#compare-sources) first.
+
+<Cards>
+  <Card title="Quickstart" icon={<SquareTerminal />} href="/docs/get-started/quickstart">
+    Stream and log SPL Token accounts and instructions.
+  </Card>
+</Cards>
+
+Then follow [Track a single mint](/docs/guides/track-a-single-mint). It needs no new dependencies and adds a server-side prefilter to one pipeline.
+
+## Choose a guide
+
+Every guide is one complete program, compiled in CI against Shipstern 0.13.0.
+
+| Guide | What it builds | Needs beyond the quickstart |
+| --- | --- | --- |
+| [Track a single mint](/docs/guides/track-a-single-mint) | Token Program instructions from transactions that list one mint | Nothing |
+| [Watch a wallet's token moves](/docs/guides/watch-a-wallets-token-moves) | Transfers into and out of one wallet, matched through token-balance owners | A gRPC server with `token_accounts` support |
+| [Track many accounts](/docs/guides/track-many-accounts-with-a-cuckoo-filter) | Updates for thousands of accounts listed in a file, sent as one cuckoo filter | A gRPC server with cuckoo filter support |
+| [Index several programs](/docs/guides/index-several-programs) | SPL Token, Token-2022 and Stake Pool instructions in one runtime, each to its own handler | Nothing |
+| [Index token transfers into Postgres](/docs/guides/index-transfers-into-postgres) | Transfer rows with idempotent writes and a resume checkpoint | Postgres and `psql` |
+| [Resume after a restart](/docs/guides/resume-after-a-restart) | SPL Token transfers written per slot, with a parent-chain checkpoint that a restart resumes from | A yellowstone-grpc 14.1.0 or newer server that keeps slots and allows two `slots` filters |
+| [Backfill, then stream live](/docs/guides/backfill-then-stream-live) | Stake Pool accounts loaded over RPC and kept current by a gRPC stream that starts first | A Solana RPC URL that serves `getProgramAccounts` for the program, and a gRPC server with replay on |
+| [Generate a parser from an IDL](/docs/guides/generate-a-parser-from-an-idl) | pump.fun account and instruction parsers from its Anchor IDL | Anchor CLI 1.x |
+| [Decode pump.fun trade events](/docs/guides/decode-pump-fun-trade-events) | Trades and new tokens from the events in the same IDL | The IDL from the previous guide |
+| [Pick a source at startup](/docs/guides/pick-a-source-at-startup) | One binary whose config chooses Yellowstone gRPC, Fumarole or Solana RPC | A Solana RPC URL or Fumarole access, to try the other sources |
+| [Act on preconfirmations](/docs/guides/act-on-preconfirmations) | Preconfirmations for one program, each checked by signature against a confirmed gRPC stream: settled with its lead time, or unsettled after 150 slots | A Triton token with a preconf feed, and a gRPC server that stores slots |
+| [Push metrics to Prometheus](/docs/guides/push-metrics-to-prometheus) | Received, parsed and failed counters in Prometheus | Docker with Compose |
+| [Write complete slots to Kafka](/docs/outputs/kafka-sink) | Ordered, slot-by-slot Kafka writes with the block coordinator | A Kafka broker with transactions, and Shipstern crates from the `v0.13.0` git tag |
+| [Serve parsed data over gRPC](/docs/outputs/stream-server) | A stream server that other services subscribe to by program | `grpcurl` or another gRPC client to check it |
+
+## See also
+
+- [Token-2022 mint extensions](/docs/parsers#read-token-2022-mint-extensions): read base mint fields and decode extension payloads.
+- [Stored events and protobuf output](/docs/parsers/idl-codegen#decode-stored-events-directly): decode saved logs and export schemas for clients.
+- [Troubleshooting](/docs/get-started/troubleshooting#the-runtime-starts-but-no-data-arrives): separate connection problems from parser or handler failures.

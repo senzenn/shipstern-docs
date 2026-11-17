@@ -1,0 +1,26 @@
+# Own workspace: `program-events` changes `InstructionParser::Output` for every
+# generated parser it reaches, so it must not unify into the other examples.
+[workspace]
+
+[package]
+name = "pump-trade-events"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+borsh = { version = "1", features = ["derive"] }
+clap = { version = "4.5", features = ["derive"] }
+rustls = "0.23"
+shipstern = "0.13.0"
+shipstern-core = "0.13.0"
+shipstern-parser = "0.13.0"
+shipstern-proc-macro = { version = "0.13.0", features = ["program-events"] }
+shipstern-yellowstone-grpc-source = "0.13.0"
+toml = "0.8"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# The generated code carries `#[cfg_attr(feature = "serde", ...)]`. Declare the
+# cfg so rustc does not warn when this crate has no `serde` feature.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("serde"))'] }

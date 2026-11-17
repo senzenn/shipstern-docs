@@ -1,0 +1,61 @@
+---
+title: Shipstern and Solana Data Glossary
+sidebarTitle: Glossary
+description: Short definitions of the Solana, Yellowstone and Shipstern terms used in these docs.
+llmsDescription: "Glossary for the Shipstern docs. Defines Solana terms (slot, block, bank, bank ID, commitment levels processed, confirmed and finalized, fork, dead slot, CPI, self-CPI event, discriminator, write version, Transaction V1 / SIMD-0385, IDL, Anchor, Shank, Codama), data source terms (Geyser plugin, Yellowstone gRPC, x-token, Dragon's Mouth, Fumarole, Old Faithful, Jetstreamer, getProgramAccounts) and Shipstern terms (update, source, parser, handler, pipeline, prefilter, filter set, runtime, RuntimeHandle, worker pool, block coordinator, MSRV), each with a link to the page that covers it."
+---
+
+## Solana
+
+| Term | Meaning |
+| --- | --- |
+| Slot | A leader's turn to produce a block, about 400 ms. A slot can end without a block. |
+| Block | The transactions produced in one slot. |
+| Bank | One execution of a slot by a node. At `processed`, a slot can have more than one bank. |
+| Bank ID | The `bank_id` that a Yellowstone gRPC server (proto 13 or newer) puts on bank-scoped updates. It is local to one server connection, so two streams cannot be matched on it. The bank replay reconnect at `processed` and the [block coordinator](/docs/outputs/block-coordinator) need it. |
+| Commitment level | How settled the data is. `processed`: seen by the node, can still be rolled back. `confirmed`: voted on by a supermajority of stake. `finalized`: 31 or more confirmed blocks built on top, cannot be rolled back. |
+| Fork | Two competing chains of slots. One is eventually finalized and the other abandoned. |
+| Dead slot | A slot the node gave up on. Its data never becomes part of the chain. |
+| CPI | Cross-program invocation: one program calling another inside the same transaction. CPIs appear as inner instructions. |
+| Self-CPI event | An Anchor event emitted with `emit_cpi!`: the program calls itself with the event as instruction data, instead of writing a log line. See [IDL code generation](/docs/parsers/idl-codegen). |
+| Discriminator | Bytes at the start of an instruction or account that identify its type. |
+| Write version | A counter the validator attaches to each account write, used to order writes within a slot. |
+| Transaction V1 | A new transaction format (SIMD-0385) that carries its compute budget in the message. Supported from Shipstern 0.10.0. |
+| IDL | Interface description of a program's instructions, accounts and types. |
+| Anchor, Shank | Frameworks that generate IDLs for Solana programs. |
+| Codama | A tool and format for program IDLs. Shipstern's code generator reads Codama JSON, and since 0.12.0 converts an Anchor IDL to Codama itself. See [IDL code generation](/docs/parsers/idl-codegen). |
+
+## Data sources
+
+| Term | Meaning |
+| --- | --- |
+| Geyser plugin | A validator plugin interface that streams account, transaction and slot updates out of a node as they happen. |
+| Yellowstone gRPC | A Geyser plugin from Triton that serves those updates over gRPC. Shipstern's main [source](/docs/sources/yellowstone-grpc). |
+| `x-token` | The authentication token a Yellowstone gRPC or Fumarole provider issues. Shipstern sends it as a request header. |
+| Dragon's Mouth | The name of Yellowstone gRPC's streaming interface. In these docs it means the same as Yellowstone gRPC. |
+| Fumarole | Triton's persistent streaming service. It merges data from several nodes and lets a named subscriber resume. In limited beta. |
+| Old Faithful | An archive of Solana's full history. |
+| Jetstreamer | Anza's library for replaying Old Faithful archives. Shipstern's [Jetstreamer source](/docs/reference/configuration#jetstreamer-source) uses it. |
+| `getProgramAccounts` | The JSON-RPC method that returns every account a program owns. The [Solana RPC source](/docs/reference/configuration#solana-rpc-source) uses it. |
+
+## Shipstern
+
+| Term | Meaning |
+| --- | --- |
+| Update | One message from a source: an account write, transaction, slot, block, block meta or block footer, in the Yellowstone `SubscribeUpdate` format. |
+| Source | Where updates come from. See [Sources](/docs/sources). |
+| Parser | Turns one kind of update into a typed value. See [Parsers](/docs/parsers). |
+| Handler | Application code that receives each parsed value. See [Handlers](/docs/runtime/handlers). |
+| Pipeline | One parser plus its handlers. See [Core concepts](/docs/get-started/core-concepts#pipelines). |
+| Prefilter | What a parser asks the server to send. See [Prefilters](/docs/filtering/prefilters). |
+| Filter set (`Filters`) | Every registered prefilter, keyed by parser ID. It becomes the gRPC subscription. |
+| Runtime | Receives updates from the source, routes each one to the pipelines for its kind, and stops on a signal. See [Runtime](/docs/runtime). |
+| `RuntimeHandle` | Changes a running gRPC runtime's filter set. See [Live filter updates](/docs/filtering/live-filter-updates). |
+| Worker pool | The runtime's concurrent executor for parsers and handlers, sized by `jobs`. See [Runtime](/docs/runtime#size-the-worker-pool). |
+| Block coordinator | Releases parsed records one complete slot at a time, in order. See [Block coordinator](/docs/outputs/block-coordinator). |
+| MSRV | Minimum supported Rust version. 1.97.1 since Shipstern 0.13.0. |
+
+## See also
+
+- [Core concepts](/docs/get-started/core-concepts): how the Shipstern terms fit together.
+- [Troubleshooting](/docs/get-started/troubleshooting): problems by symptom.

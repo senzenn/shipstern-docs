@@ -1,0 +1,40 @@
+# Every Rust program shown in the docs lives here and is compiled in CI
+# (`cargo check --workspace --all-targets`), so a code sample cannot drift
+# from the Shipstern release the docs describe.
+#
+# Pages embed these files with <include>, so edit the code here, not in MDX.
+[workspace]
+members = ["quickstart", "track-a-single-mint", "idl-parser", "prometheus-metrics", "snippets", "sources", "postgres-indexer", "pick-a-source", "wallet-token-moves", "cuckoo-accounts", "resume-after-restart", "backfill-then-live", "preconf-settlement", "several-programs"]
+resolver = "2"
+# Separate workspaces: their `proto` and `program-events` features would unify
+# into every other example and change parser output types. kafka-sink and
+# stream-replay also take Shipstern crates from git, not crates.io.
+exclude = ["stream-server", "kafka-sink", "pump-trade-events", "advanced-parsers", "stream-replay", "all-sources"]
+
+[workspace.package]
+edition = "2021"
+publish = false
+
+[workspace.dependencies]
+# Keep in step with `shipsternVersion` in lib/shared.ts.
+shipstern = "0.13.0"
+shipstern-core = "0.13.0"
+shipstern-parser = "0.13.0"
+shipstern-proc-macro = "0.13.0"
+shipstern-mock = "0.13.0"
+shipstern-spl-token-parser = "0.13.0"
+shipstern-stake-pool-parser = "0.13.0"
+shipstern-yellowstone-grpc-source = "0.13.0"
+shipstern-yellowstone-fumarole-source = "0.13.0"
+shipstern-solana-rpc-source = "0.13.0"
+shipstern-preconf-source = "0.13.0"
+
+borsh = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+clap = { version = "4.5", features = ["derive"] }
+prometheus = { version = "0.14", features = ["push"] }
+rustls = "0.23"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

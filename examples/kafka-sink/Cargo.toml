@@ -1,0 +1,24 @@
+# Own workspace, kept apart from ../Cargo.toml: `proto` on the token parser
+# would otherwise unify into every other example.
+[workspace]
+
+[package]
+name = "kafka-sink"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+rustls = "0.23"
+serde = { version = "1", features = ["derive"] }
+# shipstern-kafka-sink is not on crates.io, so every Shipstern crate comes from
+# the release tag; mixing git and crates.io copies would duplicate shared types.
+shipstern = { git = "https://github.com/solana-rpc/shipstern", tag = "v0.13.0" }
+shipstern-block-coordinator = { git = "https://github.com/solana-rpc/shipstern", tag = "v0.13.0" }
+shipstern-kafka-sink = { git = "https://github.com/solana-rpc/shipstern", tag = "v0.13.0" }
+shipstern-spl-token-parser = { git = "https://github.com/solana-rpc/shipstern", tag = "v0.13.0", features = ["proto"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
+tokio-util = "0.7"
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

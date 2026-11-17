@@ -1,0 +1,121 @@
+---
+title: Shipstern Changelog
+sidebarTitle: Changelog
+description: Every Shipstern release, newest first, with what changed and required upgrade steps.
+llmsDescription: Changelog for Shipstern (formerly Yellowstone Vixen), newest release first. Summarises 0.13.0 (bank_id on bank-scoped updates, Yellowstone gRPC reconnect by commitment with SlotResume and BankReplay, bank-aware block coordinator with max_pending_banks, block footers, shipstern-preconf-source for Triton preconfirmations, Agave 4.3.2 and Rust 1.97.1), 0.12.0 (one-method SourceTrait and source-free RuntimeBuilder with build::<S>(config), raw and legacy Anchor IDLs in include_shipstern_parser! via shipstern-codama-from-anchor, Yellowstone cuckoo filters and token_accounts in prefilters, generated parser and event fixes), 0.11.0 (codama-nodes 0.13.2, length-prefix decoding fix, programNode.origin restricted to anchor or shank), 0.10.0 (Agave 4.2.2, Transaction V1 / SIMD-0385, MSRV 1.93, spl-token-2022 11), 0.9.0 (live filter updates with RuntimeHandle, full Yellowstone filter surface, breaking PrefilterError and prefilter struct changes), 0.8.0 (rename from Yellowstone Vixen to Shipstern), 0.7.0 (worker pool, auto-reconnect on by default), 0.6.1 (block coordinator, Kafka sink, Jetstream source, BPF Loader parser), and 0.2.0 through 0.5.0, each with upgrade impact tags and links to full notes.
+full: true
+---
+
+This page summarises each Shipstern release, newest first, and links to its full notes. Shipstern follows [Semantic Versioning](https://semver.org/) and keeps a [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) file in the repository. [Versions and upgrades](/docs/releases/versioning) explains the version numbers and tags.
+
+<Update label="2026-11-12" version="v0.13.0" tags={["Minor", "Breaking", "Behaviour change", "Added", "Fixed"]} href="/docs/releases/v0-13-0">
+
+**Bank IDs, reconnect by commitment, block footers and preconfirmations.**
+
+- **Breaking:** bank-scoped updates carry a `bank_id`. The Yellowstone gRPC source resumes from a slot checkpoint at confirmed or finalized, and uses the client's bank replay at processed. Bank replay needs a server that sends bank IDs (yellowstone-grpc proto 13 or newer). On an older server at processed, set `auto-reconnect = false`.
+- **Breaking:** the block coordinator keeps records per bank, flushes only the confirmed bank and takes `max_pending_banks`.
+- **Added:** `shipstern-preconf-source` for Triton Harmonic and BAM preconfirmations, and block footer pipelines.
+- **Behaviour change:** `slot_interslot_updates(true)` delivers every slot status.
+- Agave 4.3.2 needs Rust 1.97.1. `shipstern-jetstream-source` is not on crates.io at this version, and `shipstern-kafka-sink` is not published. A project that uses either takes every crate from the `v0.13.0` git tag.
+
+</Update>
+
+<Update label="2026-10-11" version="v0.12.0" tags={["Minor", "Breaking", "Added", "Fixed"]} href="/docs/releases/v0-12-0">
+
+**One-method sources, source-free builders and Anchor IDLs.**
+
+- **Breaking:** name the source at build time: `Runtime::builder()...build::<S>(config)`. `SourceTrait` has one method, `connect(&self, ctx: SourceContext)`.
+- **Added:** `include_shipstern_parser!` reads raw and legacy Anchor IDLs through the new `shipstern-codama-from-anchor` crate.
+- **Added:** prefilters send account sets as Yellowstone cuckoo filters and pass `token_accounts` through. Prefilter struct literals need `..Default::default()`.
+- **Fixed:** an event emitted as both a self-CPI and a log line is returned once. Generated parsers read discriminators, fixed options and fixed-address accounts correctly. The Token-2022 parser skips other programs' instructions.
+- `shipstern-jetstream-source` is not on crates.io at this version; take every crate from the `v0.12.0` git tag.
+
+</Update>
+
+<Update label="2026-09-18" version="v0.11.0" tags={["Minor", "Breaking", "Fixed"]} href="/docs/releases/v0-11-0">
+
+**`codama-nodes` 0.13.2 and correct length-prefix decoding.**
+
+- **Breaking:** IDLs whose `programNode.origin` is anything other than `"anchor"` or `"shank"` no longer load. Omitting the field is fine.
+- **Fixed:** byte and string fields now honour the IDL's declared length prefix (`u8`, `u16`, `u64`, big-endian, `shortU16`). Decoded output changes for IDLs that use a non-`u32` prefix.
+- `codama-nodes` is pinned to `=0.13.2`. Generated integer literals are now unsuffixed.
+
+</Update>
+
+<Update label="2026-09-10" version="v0.10.0" tags={["Minor", "Breaking", "Behaviour change", "Fixed"]} href="/docs/releases/v0-10-0">
+
+**Agave 4.2 and Transaction V1.**
+
+- Solana/Agave dependencies move from 3.x to 4.2.2, which can represent Transaction V1 (SIMD-0385) messages. **MSRV rises from 1.90 to 1.93.**
+- `spl-token-2022` 10 to 11 adds the `PermissionedBurn` authority type.
+- **Behaviour change:** `UpdateGroupAuthority.new_authority` reports `None` instead of the all-zero pubkey.
+- `shipstern.parse` and `shipstern.handle` spans drop from `info` to `debug`.
+- Jetstreamer converts V1 messages, keeps their inline compute budget, and maps the new `DeactivatedStake` reward type. `shipstern-jetstream-source` now depends on Jetstreamer from git and is no longer published to crates.io.
+
+</Update>
+
+<Update label="2026-09-08" version="v0.9.0" tags={["Minor", "Breaking", "Added", "Deprecated", "Fixed"]} href="/docs/releases/v0-9-0">
+
+**Live filter updates and the full Yellowstone filter surface.**
+
+- **Added:** `Runtime::handle()` returns a `RuntimeHandle` that changes a gRPC subscription without reconnecting. See [Live filter updates](/docs/filtering/live-filter-updates).
+- **Added:** prefilters can express memcmp, data size, token-account state and lamport comparisons, transaction excludes, vote and signature filters and inter-slot updates. The gRPC source config adds request-level data slices. Builder setters check account filters at build time.
+- **Added:** generated parsers expose `DISCRIMINATOR` and `DISCRIMINATOR_OFFSET`, and read self-CPI event envelopes from the IDL.
+- **Breaking:** `PrefilterError` gained variants and the prefilter structs gained fields. Add a wildcard match arm and `..Default::default()` to struct literals.
+- **Deprecated:** the `cpi_event_discriminator` and `cpi_event_payload_offset` macro arguments are ignored when the IDL declares an envelope.
+
+</Update>
+
+<Update label="2026-08-25" version="v0.8.0" tags={["Minor", "Breaking", "Fixed"]} href="/docs/releases/migrations/vixen-to-shipstern">
+
+**Yellowstone Vixen is now Shipstern.**
+
+- **Breaking:** every crate is renamed from `yellowstone-vixen*` to `shipstern*`, and the repository moves to `solana-rpc/shipstern`.
+- **Breaking (wire):** protobuf packages move from `vixen.*` to `shipstern.*`, so the gRPC method path and `Any` type URLs change. Regenerate clients.
+- Jetstreamer 0.7 adds `reverse` replay, and sequential replays no longer hang.
+- A `[buffer]` section without `sources-channel-size` now loads, defaulting to `100`.
+
+</Update>
+
+<Update label="2026-07-26" version="v0.7.0" tags={["Minor", "Breaking", "Behaviour change", "Fixed"]} href="https://github.com/solana-rpc/shipstern/releases/tag/v0.7.0">
+
+**Native worker pool and auto-reconnect by default.**
+
+- **Behaviour change:** the buffer uses a crossbeam worker pool. `jobs` now bounds queued plus in-flight work, and shutdown waits up to 30 seconds for started handlers.
+- **Behaviour change:** gRPC auto-reconnect is on by default (10 retries from 500 ms, doubling). Set `auto-reconnect = false` to opt out.
+- **Breaking:** `JetstreamSourceConfig` and `YellowstoneGrpcConfig` gained fields; struct literals must set them.
+- Jetstreamer forwards per-account block rewards.
+
+</Update>
+
+<Update label="2026-03-30" version="v0.6.1" tags={["Patch", "Added"]} href="https://github.com/solana-rpc/shipstern/releases/tag/v0.6.1">
+
+**First stable 0.6 release, as Yellowstone Vixen.** The tag before it is `v0.6.0-alpha.0`; there is no `v0.6.0` tag.
+
+Adds the block coordinator for complete, ordered slot processing, the Kafka sink (ordered publishing, SASL SCRAM-SHA-256 over TLS), the Jetstream source, the BPF Loader parser, optional protobuf compatibility for generated parsers, and a bounded channel for the snapshot source. This release is not in the repository's `CHANGELOG.md`; the GitHub release holds the full notes.
+
+</Update>
+
+<Update label="2025-09-15" version="v0.5.0" tags={["Minor", "Added"]} href="https://github.com/solana-rpc/shipstern/releases/tag/v0.5.0">
+
+Fumarole source, SPL Stake Pool parser, block subscription, `FilterPipeline` access to included and required accounts, and a caller-provided Prometheus registry.
+
+</Update>
+
+<Update label="2025-07-23" version="v0.4.0" tags={["Minor", "Added", "Security"]} href="https://github.com/solana-rpc/shipstern/releases/tag/v0.4.0">
+
+More program parsers (Meteora, Raydium Launchpad, Boop, Virtuals), multiple sources, the gRPC `from_slot` filter, the Codama parser guide, and a fix for RUSTSEC-2024-0437 in the `protobuf` dependency.
+
+</Update>
+
+<Update label="2025-05-06" version="v0.3.0" tags={["Minor", "Breaking", "Added"]} href="https://github.com/solana-rpc/shipstern/releases/tag/v0.3.0">
+
+DEX parsers (Jupiter Swaps, Meteora, Orca Whirlpool, Pump.fun, Pump Swaps, Raydium AMM v4, CLMM and CPMM, Moonshot, Kamino Limit Orders) and block-meta subscriptions. **Breaking:** the parser crate's `orca` feature is removed; the Orca Whirlpool parser moved to its own crate.
+
+</Update>
+
+<Update label="2025-04-03" version="v0.2.0" tags={["Minor", "Added"]} href="https://github.com/solana-rpc/shipstern/releases/tag/v0.2.0">
+
+Commitment level on gRPC subscriptions, and a public `AccountKeys::get`.
+
+</Update>

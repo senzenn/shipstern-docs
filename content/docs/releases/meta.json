@@ -1,0 +1,17 @@
+{
+  "title": "Releases",
+  "description": "Changelog, release notes and migration guides",
+  "icon": "Tag",
+  "root": true,
+  "pages": [
+    "index",
+    "v0-13-0",
+    "v0-12-0",
+    "v0-11-0",
+    "v0-10-0",
+    "v0-9-0",
+    "versioning",
+    "---Migration guides---",
+    "...migrations"
+  ]
+}

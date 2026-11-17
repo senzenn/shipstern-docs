@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      run_fixture_tests:
+        description: Run the shipstern-mock fixture tests against devnet
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  site:
+    name: Site (content lint, eslint, types, build)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint:content
+      - run: npm run lint
+      - run: npm run types:check
+      - run: npm run build
+
+  examples:
+    name: Rust examples compile against the documented release
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: examples
+    steps:
+      - uses: actions/checkout@v4
+      # Seven target dirs, with the Agave runtime crates from all-sources, exceed
+      # the runner's free disk. Remove preinstalled SDKs that this job does not use.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /usr/local/.ghcup /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y llvm-dev libclang-dev clang cmake libcurl4-openssl-dev libsasl2-dev protobuf-compiler
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: examples
+      # --locked: the committed Cargo.lock is what readers are told to reproduce.
+      - run: cargo check --workspace --all-targets --locked
+      # Kept in their own workspaces so their `proto` and `program-events`
+      # features do not unify into the other examples.
+      - run: cargo check --locked --manifest-path stream-server/Cargo.toml
+      - run: cargo check --locked --manifest-path kafka-sink/Cargo.toml
+      - run: cargo check --locked --all-targets --manifest-path all-sources/Cargo.toml
+      - run: cargo check --locked --manifest-path pump-trade-events/Cargo.toml
+      - name: Instruction context and Token-2022 tests (offline)
+        run: cargo test -p snippets --locked --lib -- --skip fixture_tests
+      - name: Several-programs prefilter test (offline)
+        run: cargo test -p several-programs --locked
+      - name: Generated parser tests (offline)
+        run: cargo test --locked --manifest-path advanced-parsers/Cargo.toml
+      - name: Stream replay tests (offline)
+        run: cargo test --locked --manifest-path stream-replay/Cargo.toml
+      - name: Fixture tests (devnet)
+        if: github.event_name == 'workflow_dispatch' && inputs.run_fixture_tests
+        run: cargo test -p snippets --locked
+        env:
+          RPC_ENDPOINT: ${{ secrets.DEVNET_RPC_ENDPOINT || 'https://api.devnet.solana.com' }}
+
+  # Weekly: resolve dependencies fresh, the way a new user's project would.
+  # Catches upstream breaks like spl-stake-pool 2.1 before readers do.
+  fresh-resolve:
+    name: Examples with fresh dependency resolution
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: examples
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /usr/local/.ghcup /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - uses: dtolnay/rust-toolchain@stable
+      - run: sudo apt-get update && sudo apt-get install -y llvm-dev libclang-dev clang cmake libcurl4-openssl-dev libsasl2-dev protobuf-compiler
+      - run: |
+          rm Cargo.lock
+          cargo generate-lockfile
+          cargo check --workspace --all-targets
+          (cd stream-server && rm Cargo.lock && cargo check)
+          (cd kafka-sink && rm Cargo.lock && cargo check)
+          (cd all-sources && rm Cargo.lock && cargo check --all-targets)
+          (cd pump-trade-events && rm Cargo.lock && cargo check)
+          (cd advanced-parsers && rm Cargo.lock && cargo test)
+          (cd stream-replay && rm Cargo.lock && cargo test)

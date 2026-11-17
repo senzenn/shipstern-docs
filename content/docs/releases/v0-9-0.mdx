@@ -1,0 +1,74 @@
+---
+title: Shipstern 0.9.0 Release Notes
+sidebarTitle: "0.9.0"
+description: Live filter updates, the full Yellowstone filter surface in prefilters, and discriminator constants in generated parsers.
+llmsDescription: "Release notes for Shipstern 0.9.0, released 2026-09-08. Adds RuntimeHandle for changing a gRPC subscription without reconnecting (filters, update_filters, send_filter_update, reset_filters), Filters helpers (get, parser_ids, insert, merge, remove), prefilter support for memcmp, data size, token account state and lamport comparisons, nonempty_txn_signature, accounts_exclude, vote, signature, interslot_updates and accounts-data-slice, InstructionShared::transaction_config, DISCRIMINATOR and DISCRIMINATOR_OFFSET constants and CPI event envelopes in generated parsers. Breaking: PrefilterError gained variants and AccountPrefilter, TransactionPrefilter and SlotPrefilter gained fields. Bumps yellowstone-grpc-proto to 12.6. Jetstreamer block_meta and slot fixes."
+---
+
+<Update label="2026-09-08" version="v0.9.0" tags={["Minor", "Breaking", "Added", "Deprecated", "Fixed"]}>
+
+The gRPC source can now change its subscription while running, and prefilters can express every filter the Yellowstone server supports.
+
+## Upgrade impact
+
+| Who is affected | What to do |
+| --- | --- |
+| Code that matches exhaustively on `PrefilterError` | Add a wildcard arm. |
+| Code that builds `AccountPrefilter`, `TransactionPrefilter` or `SlotPrefilter` with a struct literal | Add `..Default::default()`, or switch to `Prefilter::builder()`. |
+| Jetstreamer users with a `block` pipeline whose prefilter sets only `block_meta` or `slot` | Register a `block_meta` (or `slot`) pipeline instead; the `block` pipeline no longer receives header-only blocks. |
+| IDL users passing `cpi_event_discriminator` / `cpi_event_payload_offset` | No action needed; they are ignored with a warning when the IDL declares a CPI event envelope. |
+| Code using `Prefilter::builder()` | No changes. |
+
+## Highlights
+
+- `Runtime::handle()` returns a `RuntimeHandle` that changes the gRPC subscription without reconnecting. See [Live filter updates](/docs/filtering/live-filter-updates).
+- Prefilters express memcmp, data size, token-account state and lamport comparisons, transaction excludes, vote and signature filters and inter-slot updates. The gRPC source config adds account data slices. Builder setters check account filters against the server's rules, so a bad filter fails at build time.
+
+## Added
+
+- `RuntimeHandle` with `filters`, `update_filters`, `send_filter_update` and `reset_filters`, for sources implementing `FilterUpdateSource` (the gRPC source). ([#302](https://github.com/solana-rpc/shipstern/pull/302), [#305](https://github.com/solana-rpc/shipstern/pull/305), [#307](https://github.com/solana-rpc/shipstern/pull/307))
+- `Filters::get`, `parser_ids`, `insert`, `merge` and `remove`. ([#305](https://github.com/solana-rpc/shipstern/pull/305))
+- `AccountPrefilter::filters` and `nonempty_txn_signature`; `TransactionPrefilter::accounts_exclude`, `vote` and `signature`; `SlotPrefilter::interslot_updates`; the gRPC source's `accounts-data-slice`. ([#303](https://github.com/solana-rpc/shipstern/issues/303))
+- `InstructionShared::transaction_config`: the inline compute budget of Transaction V1 messages; `None` for legacy and V0. ([#304](https://github.com/solana-rpc/shipstern/pull/304))
+- `shipstern-proc-macro`: generated account types and the `Instructions` wrapper expose `DISCRIMINATOR` and `DISCRIMINATOR_OFFSET`, for `memcmp` filters and routing. ([#294](https://github.com/solana-rpc/shipstern/issues/294))
+- `shipstern-proc-macro`: the self-CPI event envelope is read from the IDL, so IDLs that declare it on `eventNode.discriminators` build. ([#299](https://github.com/solana-rpc/shipstern/pull/299))
+
+## Changed
+
+- **Breaking:** `PrefilterError` gained variants, and the prefilter structs gained fields. Neither type is `#[non_exhaustive]`. ([#303](https://github.com/solana-rpc/shipstern/issues/303))
+- `yellowstone-grpc-proto` 12.4 to 12.6. ([#304](https://github.com/solana-rpc/shipstern/pull/304))
+- **Behaviour change** (`shipstern-jetstream-source`): a `block` pipeline whose prefilter sets `block_meta` or `slot` but no `include_*` flag no longer receives a header-only `Block`.
+
+## Deprecated
+
+- `cpi_event_discriminator` and `cpi_event_payload_offset` macro arguments are ignored, with a warning, when the IDL declares a CPI event envelope. No removal version is set. ([#299](https://github.com/solana-rpc/shipstern/pull/299))
+
+## Fixed
+
+- `shipstern-jetstream-source`: emits `SubscribeUpdateBlockMeta` and `SubscribeUpdateSlot` for filters that request them. Block-meta and slot parsers previously received nothing on the replay path. Replayed slots report `SLOT_FINALIZED`.
+
+## Upgrade
+
+```diff title="Exhaustive match on PrefilterError"
+  match err {
+      PrefilterError::AlreadySet(field) => { ... }
+      PrefilterError::BadPubkey(..) => { ... }
++     other => return Err(other.into()),
+  }
+```
+
+```diff title="Struct literal"
+  let prefilter = AccountPrefilter {
+      accounts,
+      owners,
++     ..Default::default()
+  };
+```
+
+## Links
+
+- [Changelog entry](https://github.com/solana-rpc/shipstern/blob/v0.12.0/CHANGELOG.md#090---2026-09-08)
+- [GitHub release](https://github.com/solana-rpc/shipstern/releases/tag/v0.9.0)
+- [Compare v0.8.0...v0.9.0](https://github.com/solana-rpc/shipstern/compare/v0.8.0...v0.9.0)
+
+</Update>

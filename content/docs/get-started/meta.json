@@ -1,0 +1,14 @@
+{
+  "title": "Get Started",
+  "description": "Install Shipstern and run a pipeline",
+  "icon": "SquareTerminal",
+  "root": true,
+  "pages": [
+    "index",
+    "installation",
+    "quickstart",
+    "core-concepts",
+    "configuration",
+    "troubleshooting"
+  ]
+}

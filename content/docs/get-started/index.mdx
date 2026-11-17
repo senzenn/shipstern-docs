@@ -1,0 +1,125 @@
+---
+title: Shipstern Developer Docs
+sidebarTitle: Welcome
+description: Stream Solana accounts and transactions in Rust, decoded by program-aware parsers.
+llmsDescription: Welcome page for the Shipstern developer docs. Shipstern is a Rust framework, formerly Yellowstone Vixen, maintained by Jupiter, ABK Labs and Triton One. It subscribes to Solana updates from a source such as Yellowstone gRPC (Dragon's Mouth), filters them on the server with per-parser prefilters, decodes them with built-in or IDL-generated parsers, and passes typed values to handlers. Shows the shape of a Shipstern program, the five docs sections, the prerequisites (Rust 1.97.1, a data source, system packages), how to read every page as Markdown for AI tools (.md suffix, Copy page, /llms.txt, /llms-full.txt), where to get help, and links each common task (first pipeline, index one or several programs, parse a custom program from its IDL, backfill then stream live, resume after a restart, act on preconfirmations, replay history, monitor, deploy, upgrade) to its page.
+---
+
+import { SquareTerminal, Workflow, Bug, History } from 'lucide-react';
+
+Shipstern is a Rust framework for indexing Solana programs. An application picks a source and registers parsers and handlers:
+
+- The source connects to a provider of Solana updates, such as a Yellowstone gRPC endpoint.
+- Each parser decodes one program's accounts or instructions.
+- Handlers are the application code that receives each decoded value.
+
+Shipstern subscribes to the updates that the parsers ask for, decodes them and calls the handlers.
+
+```rust
+shipstern::Runtime::builder()
+    .account(Pipeline::new(AccountParser, [Store]))         // token accounts -> Store
+    .instruction(Pipeline::new(InstructionParser, [Store])) // token instructions -> Store
+    .build::<YellowstoneGrpcSource>(config)                 // where data comes from, set in Shipstern.toml
+    .run();
+```
+
+A pipeline joins one parser to its handlers. `Store` stands for a handler that the application defines. The [quickstart](/docs/get-started/quickstart) has the imports, configuration and complete binary for this pattern.
+
+For a program with no built-in parser, the [`include_shipstern_parser!` macro](/docs/parsers/idl-codegen) generates one from an Anchor IDL or a Codama JSON IDL.
+
+<Cards>
+  <Card title="Quickstart" icon={<SquareTerminal />} href="/docs/get-started/quickstart">
+    Stream and log SPL Token accounts and instructions.
+  </Card>
+  <Card title="Core concepts" icon={<Workflow />} href="/docs/get-started/core-concepts">
+    Sources, parsers, handlers and prefilters on one page.
+  </Card>
+  <Card title="Troubleshooting" icon={<Bug />} href="/docs/get-started/troubleshooting">
+    Fix connection, configuration and parser errors.
+  </Card>
+  <Card title="Changelog" icon={<History />} href="/docs/releases">
+    Release changes and required migration steps.
+  </Card>
+</Cards>
+
+## Use these docs
+
+The docs have five sections, one for each tab across the top.
+
+| Section | What it holds |
+| --- | --- |
+| [Get Started](/docs/get-started/installation) | Installation, the quickstart, core concepts, configuration and troubleshooting |
+| [Docs](/docs/overview) | How the runtime, sources, parsers, filters, outputs, metrics and tests work |
+| [Guides](/docs/guides) | Complete programs for common tasks, each compiled against this release |
+| [Reference](/docs/reference/cheat-sheet) | Crates, configuration keys, errors and the glossary |
+| [Releases](/docs/releases) | The changelog, release notes with upgrade steps, and migration guides |
+
+Start with the [quickstart](/docs/get-started/quickstart), then read [core concepts](/docs/get-started/core-concepts). After that, pick the guide or Docs page for the task under [Find a task](#find-a-task).
+
+## Check the prerequisites
+
+| Item | Requirement |
+| --- | --- |
+| Rust | 1.97.1 or newer. The mock, Solana RPC, snapshot and Jetstreamer crates depend on Agave 4.3.2 crates, which need it. |
+| A data source | A Yellowstone gRPC endpoint for live data, and an `x-token` if the provider needs one. Other sources need an RPC URL, a snapshot, Fumarole access or a Triton preconf token. See [Sources](/docs/sources#compare-sources). |
+| System packages | A C compiler, and on Linux `pkg-config` and the OpenSSL headers. The Kafka sink also needs CMake and the zlib headers. See [Installation](/docs/get-started/installation#system-packages). |
+| Knowledge | Rust with `async` and Tokio, and the Solana account and transaction model. The [glossary](/docs/reference/glossary) defines the Solana and Yellowstone terms. |
+
+## Find a task
+
+| Task | Go to |
+| --- | --- |
+| Run the first pipeline | [Quickstart](/docs/get-started/quickstart) |
+| Follow transactions that mention one mint | [Track a single mint](/docs/guides/track-a-single-mint) |
+| Follow a wallet's SPL Token transfers | [Watch a wallet's token moves](/docs/guides/watch-a-wallets-token-moves) |
+| Subscribe to an account list from a file | [Track many accounts](/docs/guides/track-many-accounts-with-a-cuckoo-filter) |
+| Index a program Shipstern has no parser for | [Generate a parser from an IDL](/docs/guides/generate-a-parser-from-an-idl) |
+| Decode several programs in one runtime | [Index several programs](/docs/guides/index-several-programs) |
+| Resume after a restart with no gap | [Resume after a restart](/docs/guides/resume-after-a-restart) |
+| Load current state, then keep it current | [Backfill, then stream live](/docs/guides/backfill-then-stream-live) |
+| React to transactions before the block settles | [Act on preconfirmations](/docs/guides/act-on-preconfirmations) |
+| Decode pump.fun trades and token creation events | [Trade events](/docs/guides/decode-pump-fun-trade-events) |
+| Select the data source from configuration | [Pick a source at startup](/docs/guides/pick-a-source-at-startup) |
+| Store or process decoded instructions | [Handlers](/docs/runtime/handlers) |
+| Load the current state of a program's accounts | [Solana RPC source](/docs/reference/configuration#solana-rpc-source) |
+| Replay past epochs | [Jetstreamer source](/docs/reference/configuration#jetstreamer-source) |
+| Build filters from configuration at startup | [Runtime filters](/docs/filtering/prefilters#build-filters-at-runtime-with-filterpipeline) |
+| Change filters without restarting | [Live filter updates](/docs/filtering/live-filter-updates) |
+| Monitor throughput and errors | [Metrics](/docs/observability/metrics) |
+| Handle ordering, duplicates and checkpoints | [Delivery and ordering](/docs/runtime/delivery) |
+| Deploy a pipeline | [Run in production](/docs/runtime/production) |
+| Upgrade from Yellowstone Vixen | [Migration guide](/docs/releases/migrations/vixen-to-shipstern) |
+| Look up a config key or error | [Configuration](/docs/reference/configuration), [Errors](/docs/reference/errors) |
+
+## Use the docs with AI tools
+
+Every page is also available as Markdown for coding agents and chat assistants.
+
+| Need | Use |
+| --- | --- |
+| One page as Markdown | Add `.md` to the page URL, for example `/docs/get-started/quickstart.md`. The plain URL also returns Markdown to a request with a Markdown `Accept` header. |
+| The page in a chat | The **Copy page** button above each page copies its Markdown. The menu next to it opens the page in an AI assistant. |
+| An index of every page | [`/llms.txt`](/llms.txt): one line per page with its description. |
+| All pages in one file | [`/llms-full.txt`](/llms-full.txt): the full text of every page. |
+
+Give an agent `/llms.txt` first, and let it fetch the pages it needs. The full file is large.
+
+## Get help
+
+| Problem | Where to go |
+| --- | --- |
+| A build, connection or parser error | [Troubleshooting](/docs/get-started/troubleshooting), then [Errors](/docs/reference/errors) |
+| A wrong or missing statement on a page | **Report an issue** or **Suggest an edit** under the page's table of contents. Both open a new issue in [solana-rpc/shipstern](https://github.com/solana-rpc/shipstern/issues) with the page filled in. |
+| A bug or a feature request in Shipstern | [A new issue in solana-rpc/shipstern](https://github.com/solana-rpc/shipstern/issues/new) |
+| A change between versions | The [changelog](/docs/releases) and the upgrade impact table of each release |
+
+## Versions
+
+These docs describe Shipstern 0.13.0, which needs Rust 1.97.1 or newer. The code embedded in each guide compiles against this release. The upstream repository also has runnable projects in [`examples/`](https://github.com/solana-rpc/shipstern/tree/v0.13.0/examples).
+
+Shipstern is open source under the MIT license at [solana-rpc/shipstern](https://github.com/solana-rpc/shipstern), developed by [Jupiter](https://jup.ag/), [ABK Labs](https://abklabs.com/) and [Triton One](https://triton.one/).
+
+## See also
+
+- [Installation](/docs/get-started/installation): the toolchain, crates and system packages to set up first.
+- [Glossary](/docs/reference/glossary): Solana, Yellowstone and Shipstern terms used across these docs.

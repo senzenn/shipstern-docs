@@ -1,0 +1,65 @@
+---
+# Copy to content/docs/releases/vX-Y-Z.mdx (dots become dashes), fill in, and
+# add the slug to content/docs/releases/meta.json after "index".
+title: "Shipstern X.Y.Z Release Notes"
+sidebarTitle: "X.Y.Z"
+description: "One sentence: the most important change in this release."
+llmsDescription: "Release notes for Shipstern X.Y.Z, released YYYY-MM-DD. Name every crate that changed, every breaking or behaviour change, and what a user has to do to upgrade."
+---
+
+{/*
+  Tags for the release: "Patch" (X.Y.Z with Z > 0) or "Minor" (X.Y.0), then any of
+  "Breaking", "Behaviour change", "Added", "Fixed", "Deprecated", "Security".
+
+  A patch must not need code changes. If the release adds a public field to a
+  struct that is not #[non_exhaustive], adds a variant to an exhaustive enum, or
+  changes a public type, struct literals or exhaustive matches stop compiling:
+  either ship it as a minor release or list the fix in the upgrade impact table.
+*/}
+
+<Update label="YYYY-MM-DD" version="vX.Y.Z" tags={["Patch", "Fixed"]}>
+
+One or two sentences: which crates changed and who should care.
+
+## Upgrade impact
+
+| Who is affected | What to do |
+| --- | --- |
+| Code that builds `TypeName` with a struct literal | Add `..Default::default()` |
+| Everyone else | Bump every `shipstern*` crate to `X.Y.Z`. No code changes. |
+
+## Highlights
+
+- One line per change a user will notice, in plain words.
+
+## Added
+
+- `crate-name`: what was added and what it is for. ([#NNN](https://github.com/solana-rpc/shipstern/pull/NNN))
+
+## Changed
+
+- **Breaking:** `crate-name`: what changed, why, and the migration. ([#NNN](https://github.com/solana-rpc/shipstern/pull/NNN))
+
+## Fixed
+
+- `crate-name`: the bug, the visible symptom, and the fix. ([#NNN](https://github.com/solana-rpc/shipstern/pull/NNN))
+
+## Upgrade
+
+```toml title="Cargo.toml"
+[dependencies]
+shipstern = "X.Y.Z"
+```
+
+```bash
+cargo update
+cargo build
+```
+
+## Links
+
+- [Full changelog entry](https://github.com/solana-rpc/shipstern/blob/main/CHANGELOG.md)
+- [GitHub release](https://github.com/solana-rpc/shipstern/releases/tag/vX.Y.Z)
+- [Compare vA.B.C...vX.Y.Z](https://github.com/solana-rpc/shipstern/compare/vA.B.C...vX.Y.Z)
+
+</Update>

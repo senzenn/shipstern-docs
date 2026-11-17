@@ -1,0 +1,22 @@
+[package]
+name = "idl-parser"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+borsh.workspace = true
+clap.workspace = true
+rustls.workspace = true
+shipstern.workspace = true
+shipstern-core.workspace = true
+shipstern-parser.workspace = true
+shipstern-proc-macro.workspace = true
+shipstern-yellowstone-grpc-source.workspace = true
+toml.workspace = true
+tracing-subscriber.workspace = true
+
+# The generated code carries `#[cfg_attr(feature = "serde", ...)]`. Declare the
+# cfg so rustc does not warn when this crate has no `serde` feature.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("serde"))'] }

@@ -1,0 +1,28 @@
+# Own workspace, kept apart from ../Cargo.toml: the snapshot and Jetstreamer
+# sources build the Agave runtime crates, which the other examples do not need.
+[workspace]
+
+[package]
+name = "all-sources"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+rustls = "0.23"
+serde = { version = "1", features = ["derive"] }
+# shipstern-jetstream-source is not on crates.io at 0.13.0, so every Shipstern
+# crate comes from the release tag; mixing git and crates.io copies would
+# duplicate shared types.
+shipstern = { git = "https://github.com/solana-rpc/shipstern", tag = "v0.13.0" }
+shipstern-jetstream-source = { git = "https://github.com/solana-rpc/shipstern", tag = "v0.13.0" }
+shipstern-solana-rpc-source = { git = "https://github.com/solana-rpc/shipstern", tag = "v0.13.0" }
+shipstern-solana-snapshot-source = { git = "https://github.com/solana-rpc/shipstern", tag = "v0.13.0" }
+shipstern-spl-token-parser = { git = "https://github.com/solana-rpc/shipstern", tag = "v0.13.0" }
+shipstern-stake-pool-parser = { git = "https://github.com/solana-rpc/shipstern", tag = "v0.13.0" }
+shipstern-yellowstone-fumarole-source = { git = "https://github.com/solana-rpc/shipstern", tag = "v0.13.0" }
+shipstern-yellowstone-grpc-source = { git = "https://github.com/solana-rpc/shipstern", tag = "v0.13.0" }
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

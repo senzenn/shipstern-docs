@@ -1,0 +1,113 @@
+---
+title: Shipstern 0.13.0 Release Notes
+sidebarTitle: 0.13.0
+description: Bank IDs on every bank-scoped update, reconnect by commitment, a bank-aware block coordinator, block footers and a preconfirmation source.
+llmsDescription: "Release notes for Shipstern 0.13.0, released 2026-11-12. Moves to Agave 4.3.2 (Rust 1.97.1), yellowstone-grpc-proto 14, yellowstone-grpc-client 15, yellowstone-fumarole-client 0.9 and yellowstone-block-machine 0.11, and bank-scoped updates carry a bank_id. Adds shipstern-preconf-source for Triton Harmonic and BAM preconfirmations, and PrefilterBuilder::block_footers and RuntimeBuilder::block_footer for Alpenglow block footers with shipstern_block_footers_* metrics. shipstern-yellowstone-grpc-source picks a ReconnectMode from the commitment: SlotResume at confirmed or finalized (resume from a slot checkpoint, each wait capped at 10 s, about 65 s for 10 retries) and BankReplay at processed with no from_slot and no RuntimeHandle (the client's bank replay). Bank replay needs a server that sends bank IDs (yellowstone-grpc proto 13 or newer), so a processed stream on a proto 12.7 server needs auto-reconnect = false. reconnect-slot-retention is removed. shipstern-block-coordinator keeps records per (slot, bank_id), flushes only the confirmed bank, takes max_pending_banks (DEFAULT_MAX_PENDING_BANKS = 64) and stops with TooManyPendingBanks instead of stalling. slot_interslot_updates(true) now delivers every slot status. Breaking for struct literals of Prefilter, Builder, BlockMetaUpdate, InstructionShared, InstructionSlot and AccountSlot, and for exhaustive matches on BuilderError, CoordinatorError and DiscardReason. Fumarole needs service minor version 39 or newer. Fixes the Jetstream replay stall from epoch 1064, precompile log ranges, Codama enum tag width, the stake pool parser with spl-stake-pool 2.1.1 and later, and parser crates built next to the BPF Loader parser. shipstern-jetstream-source stays at 0.9.0 on crates.io and shipstern-kafka-sink is not published. Includes an upgrade impact table and upgrade steps."
+---
+
+<Update label="2026-11-12" version="v0.13.0" tags={["Minor", "Breaking", "Behaviour change", "Added", "Fixed"]}>
+
+In this release, every bank-scoped update carries a `bank_id`. A bank is one execution of a slot by a node, and at processed commitment a slot can have more than one bank. The Yellowstone gRPC source picks its reconnect method from the commitment, and the block coordinator flushes only the bank that confirms. Block coordinator code, gRPC sources on older servers and struct literals need changes.
+
+## Upgrade impact
+
+| Who is affected | What to do |
+| --- | --- |
+| Projects that use `shipstern-mock`, `shipstern-solana-rpc-source`, `shipstern-solana-snapshot-source` or `shipstern-jetstream-source` | Build with Rust 1.97.1 or later, which Agave 4.3.2 needs. The `~4.3.2` requirement keeps a fresh build off Agave 4.4, which needs Rust 1.98.1. |
+| The Yellowstone gRPC source at processed, or with no `commitment-level`, on a server with yellowstone-grpc proto 12.7 or older | Set `auto-reconnect = false`. Bank replay needs bank IDs, and without them the run ends with `FailedPrecondition` at the first account update or reconnect. |
+| The Yellowstone gRPC source at processed, with `auto-reconnect` on, a block meta or slot pipeline, and a server that allows one filter of each kind | Set `auto-reconnect = false`. The client adds its own `blocks_meta` and `slots` filters, so the server refuses the subscription and the run ends. |
+| Configs that set `reconnect-slot-retention` | Remove the key. In a config file the key is ignored, and the `--reconnect-slot-retention` flag is rejected. |
+| Slot pipelines with `slot_interslot_updates(true)` | Check `status` in the handler. The pipeline now receives every slot status, not only the status at the stream's commitment. |
+| `shipstern-block-coordinator` users | Pass `DEFAULT_MAX_PENDING_BANKS` as the last argument of `BlockMachineCoordinator::run`. Pass each update's `bank_id` to the `CoordinatorHandle` senders. Rename `pending_slot_count` to `pending_bank_count`. The server must send bank IDs. |
+| Code that builds `Prefilter` or the runtime `Builder` with a struct literal | Add `..Default::default()`. |
+| Code that builds `BlockMetaUpdate`, `InstructionShared`, `InstructionSlot` or `AccountSlot` with a struct literal | Set `bank_id`, and on `AccountSlot` also `parent_slot` and `blockhash`. |
+| Exhaustive matches on `BuilderError`, `CoordinatorError` or `DiscardReason` | Add a wildcard arm. `DiscardReason::Untracked` is removed. |
+| The Fumarole source | Use a Fumarole service at minor version 39 or newer. An older or unparsable version ends the run at connect. |
+| `shipstern-jetstream-source` or `shipstern-kafka-sink` users | Take every Shipstern crate from the `v0.13.0` git tag. crates.io has `shipstern-jetstream-source` only up to 0.9.0, and does not have `shipstern-kafka-sink`. |
+| Everyone else | Bump every `shipstern*` crate to `0.13.0`. |
+
+## Highlights
+
+- The new `shipstern-preconf-source` streams Triton Harmonic and BAM preconfirmations as transaction updates, so existing transaction and instruction parsers read them.
+- Pipelines can subscribe to Alpenglow block footers.
+- A confirmed or finalized gRPC stream resumes from a slot checkpoint after a stream loss, also when it has a `from_slot` or a `RuntimeHandle`.
+- The block coordinator stops with an error when too many banks wait to flush, instead of stalling silently.
+- The stake pool parser builds with current `spl-stake-pool` releases, and its parsers implement `Debug` again.
+
+## Added
+
+- `shipstern-preconf-source`: a source for Triton Harmonic and BAM preconfirmations. Each preconfirmed transaction arrives as a `SubscribeUpdateTransaction` with a per-slot `index` and a meta that carries only the outcome. A prefilter matches only static account keys, not keys from a lookup table. The source sends no slot updates. When the stream drops, the source subscribes again with backoff (`auto-reconnect`, `reconnect-max-retries`). ([#359](https://github.com/solana-rpc/shipstern/pull/359), [#360](https://github.com/solana-rpc/shipstern/pull/360), [#361](https://github.com/solana-rpc/shipstern/pull/361))
+- `shipstern-core`, `shipstern`: `PrefilterBuilder::block_footers` and `RuntimeBuilder::block_footer` subscribe to Alpenglow block footers, with `shipstern_block_footers_*` metrics. `CoordinatorSource` and the Jetstream source deliver no footers. ([#358](https://github.com/solana-rpc/shipstern/pull/358))
+
+## Changed
+
+- **Breaking:** all crates move to `yellowstone-grpc-proto` ~14.0.1, `yellowstone-grpc-client` 15.0.0, `yellowstone-fumarole-client` 0.9.0 and `yellowstone-block-machine` 0.11.0. Bank-scoped updates carry a `bank_id`. ([#358](https://github.com/solana-rpc/shipstern/pull/358))
+- **Breaking:** `shipstern-mock`, `shipstern-solana-rpc-source`, `shipstern-solana-snapshot-source` and `shipstern-jetstream-source` move to Agave 4.3.2, which needs Rust 1.97.1. `shipstern-solana-snapshot-source` loads snapshot archives with `solana-runtime` and no longer depends on `solana-ledger`, so its build no longer compiles RocksDB. ([#388](https://github.com/solana-rpc/shipstern/pull/388))
+- **Breaking:** `shipstern-yellowstone-grpc-source` recovers a lost stream in one of two ways. `YellowstoneGrpcConfig::reconnect_mode` returns the `ReconnectMode` that applies. ([#358](https://github.com/solana-rpc/shipstern/pull/358), [#384](https://github.com/solana-rpc/shipstern/pull/384))
+  - `SlotResume`, at confirmed or finalized: the source subscribes again from a slot checkpoint with the newest filter set, and drops the repeats it has a record of. It adds its own `slots` filter. Each wait is capped at 10 s, so the default 10 retries span about 65 s instead of 8.5 minutes. If the server answers `from_slot is not supported`, the run ends at once. With no `from_slot`, a loss before the first checkpoint ends the run.
+  - `BankReplay`, at processed with no `from_slot` and no `RuntimeHandle`: the client replays the cut-off banks. The replay can repeat the cut-off block, and the client adds its own `blocks_meta` and `slots` filters. At processed with a `from_slot` or a `RuntimeHandle`, a stream loss ends the run.
+  - Both modes need a server that stores slots. Bank replay also needs a server that sends bank IDs (yellowstone-grpc proto 13 or newer).
+- **Breaking:** `shipstern-yellowstone-grpc-source`: the `reconnect-slot-retention` option, its `reconnect_slot_retention` field and its `RECONNECT_SLOT_RETENTION` environment variable are removed. ([#358](https://github.com/solana-rpc/shipstern/pull/358))
+- **Breaking:** `shipstern-core`: `PrefilterBuilder::slot_interslot_updates(true)` also sets `SlotPrefilter::filter_by_commitment` to false, because the server sends interslot statuses such as `CreatedBank` and `Dead` only then. Before this release, the server ignored the setting. On Fumarole, the setting adds only the processed, confirmed and finalized statuses. ([#389](https://github.com/solana-rpc/shipstern/pull/389))
+- **Breaking:** for struct literals and exhaustive matches: `Prefilter` and the runtime `Builder` gained `block_footer`, and `BuilderError` gained `BlockFooterCollision`. `InstructionShared` keeps the transaction's `bank_id`, nested instructions included. `BlockMetaUpdate` gained `bank_id`, so a consumer can join a parsed block meta from the gRPC source with the slot and footer updates of its bank on (`slot`, `bank_id`). ([#358](https://github.com/solana-rpc/shipstern/pull/358), [#363](https://github.com/solana-rpc/shipstern/pull/363), [#389](https://github.com/solana-rpc/shipstern/pull/389))
+- **Breaking:** `shipstern-block-coordinator` keeps records per bank (`slot`, `bank_id`) and flushes only the bank that reaches confirmed. ([#358](https://github.com/solana-rpc/shipstern/pull/358), [#363](https://github.com/solana-rpc/shipstern/pull/363), [#366](https://github.com/solana-rpc/shipstern/pull/366), [#389](https://github.com/solana-rpc/shipstern/pull/389))
+  - `BlockMachineCoordinator::run` takes `max_pending_banks`. The coordinator stops with `CoordinatorError::TooManyPendingBanks` when more than that many banks wait to flush. A slot that never resolved used to be discarded after 300 slots, or it stalled the coordinator. Now the caller restarts from its checkpoint and replays the slot. `MISSING_PARENT_GRACE_SLOTS` is removed.
+  - `CoordinatorEvent`, `CoordinatorMessage`, `CoordinatorInput` and the `CoordinatorHandle` senders take a `bank_id`. `CoordinatorEvent::SlotDiscarded` carries `bank_ids`, and `CoordinatorEvent::BankDiscarded` is new. `CoordinatorState::pending_slot_count` is now `pending_bank_count`.
+  - `InstructionSlot` gained `bank_id`. `AccountSlot` gained `bank_id`, `parent_slot` and `blockhash`, so a consumer can check that consecutive slots chain.
+  - `CoordinatorError` gained `MissingBankId`, `BankInTwoSlots`, `ConflictingBlockIdentity`, `TooManyPendingBanks` and `ClearedCommittedBank`. `DiscardReason` gained `Cleared` and lost `Untracked`.
+  - The coordinator discards a block as incomplete when its entry or transaction count does not match its BlockMeta. It skips a malformed BlockMeta or Entry.
+  - `CoordinatorSource` does not reconnect and ignores `auto-reconnect` and `reconnect-max-retries`. It no longer asks the server for blocks or block footers, and it logs one warning that names the block, block meta, block footer and slot pipelines it does not feed.
+- **Breaking:** `shipstern-yellowstone-fumarole-source`: `yellowstone-fumarole-client` 0.9 needs a Fumarole service at minor version 39 or newer. ([#358](https://github.com/solana-rpc/shipstern/pull/358))
+- `shipstern-kafka-sink`: `BufferingHandler` skips an account update with no `bank_id`. ([#358](https://github.com/solana-rpc/shipstern/pull/358))
+- `shipstern-jetstream-source` no longer depends on `jetstreamer-utils`. ([#386](https://github.com/solana-rpc/shipstern/pull/386))
+
+## Fixed
+
+- `shipstern-jetstream-source`: a replay of epoch 1064 or later stalled with no error at the first block of an epoch. The pinned Jetstreamer now decodes `VATDebit` rewards, and the source maps them to `RewardType::VatDebit`. ([#388](https://github.com/solana-rpc/shipstern/pull/388))
+- `shipstern-core`, `shipstern-mock`: a top-level precompile no longer takes the log lines of the next instruction, so `log_messages()` of each later instruction returns its own range. ([#377](https://github.com/solana-rpc/shipstern/pull/377))
+- `shipstern-proc-macro`: generated parsers read and write an enum tag at the width and byte order of the Codama `EnumTypeNode.size`, so the System nonce account (`u32` tags) decodes. ([#378](https://github.com/solana-rpc/shipstern/pull/378))
+- `shipstern-stake-pool-parser`: builds against `spl-stake-pool` 2.1.1 and later, and its parsers derive `Debug` again, so a `Runtime` accepts them. ([#382](https://github.com/solana-rpc/shipstern/pull/382))
+- The block meta, BPF Loader, SPL Token, Token-2022 and Stake Pool parser crates depend on `prost` directly. Before, a build that also had `shipstern-bpf-loader-parser` failed: its default `proto` feature made the macro emit prost code in crates with no `prost` dependency. ([#383](https://github.com/solana-rpc/shipstern/pull/383))
+- `shipstern`: a run whose buffer stops on a stream error returns that error, even when the source then reports `ReceiverDropped`. Before this release, the run logged the error and returned `Ok(())`. ([#384](https://github.com/solana-rpc/shipstern/pull/384))
+- `shipstern-yellowstone-grpc-source`: on a slot resume, the source keeps a status other than confirmed or finalized for each bank of a slot, and never drops a `Completed` or `Dead` status as a repeat. ([#387](https://github.com/solana-rpc/shipstern/pull/387), [#389](https://github.com/solana-rpc/shipstern/pull/389))
+- `shipstern-block-coordinator`: fixes for forks, repairs and late entries. ([#363](https://github.com/solana-rpc/shipstern/pull/363), [#366](https://github.com/solana-rpc/shipstern/pull/366))
+  - A bank commits only by its own commitment status, or by a committed child whose parent blockhash names it.
+  - A block whose last entry arrives after its BlockMeta is held until the entry arrives, instead of being discarded.
+  - A child of a dead slot waits for the slot's repair, and the repair bank of a dead slot flushes.
+  - Accounts flush in chain order, like instructions.
+
+## Upgrade
+
+```toml title="Cargo.toml"
+[dependencies]
+shipstern = "0.13.0"
+shipstern-yellowstone-grpc-source = "0.13.0"
+# ...and every other shipstern* dependency
+```
+
+Pass the pending bank limit to the block coordinator:
+
+```diff title="src/main.rs"
+ BlockMachineCoordinator::run(
+     input_rx,
+     parsed_rx,
+     Some(slots_tx),
+     None,
+     AccountCommitAt::Confirmed,
+     true,
++    DEFAULT_MAX_PENDING_BANKS,
+ )
+```
+
+```bash
+cargo update
+cargo build
+```
+
+## Links
+
+- [Full changelog entry](https://github.com/solana-rpc/shipstern/blob/v0.13.0/CHANGELOG.md#0130---2026-11-12)
+- [GitHub release](https://github.com/solana-rpc/shipstern/releases/tag/v0.13.0)
+- [Compare v0.12.0...v0.13.0](https://github.com/solana-rpc/shipstern/compare/v0.12.0...v0.13.0)
+
+</Update>

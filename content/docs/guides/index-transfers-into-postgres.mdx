@@ -1,0 +1,174 @@
+---
+title: Index Token Transfers into Postgres
+sidebarTitle: Index into Postgres
+description: Write SPL Token transfers to Postgres with duplicate-safe inserts and checkpoint-based replay.
+llmsDescription: "End-to-end guide: a Shipstern 0.13.0 binary that streams SPL Token instructions from Yellowstone gRPC, decodes Transfer and TransferChecked with shipstern-spl-token-parser, and writes them to Postgres with tokio-postgres. Covers creating the project, the table schema with a (signature, ix_path) primary key embedded with include_str!, idempotent INSERT ... ON CONFLICT DO NOTHING writes, a checkpoint table updated with GREATEST so it only moves forward, why the worker pool finishes updates out of order, resuming with from_slot 300 slots before the checkpoint, running the binary with DATABASE_URL and Shipstern.toml in the working directory, checking the results with psql, common startup errors, and the limits: handler errors are logged and not retried, gaps beyond server retention, rows not grouped by slot."
+---
+
+Store SPL Token transfers in Postgres with duplicate-safe inserts, and replay from a stored checkpoint after a restart. Recovery works only if the replay margin covers the updates in flight and the server still holds the starting slot.
+
+**Based on:** no upstream example. Compiled against Shipstern 0.13.0; not run against a live database.
+
+```mermaid
+flowchart LR
+    G[Yellowstone gRPC] --> P[InstructionParser]
+    P --> H[TransfersToPostgres]
+    H -->|insert| T[(token_transfers)]
+    H -->|max slot| C[(indexer_checkpoint)]
+    C -.->|on restart: from_slot| G
+```
+
+**Prerequisites:** Rust 1.93 or newer, `Shipstern.toml` from the [quickstart](/docs/get-started/quickstart#configure-the-source), a running Postgres server and the `psql` client.
+
+## Two facts the design depends on
+
+1. **Updates can arrive more than once.** After a reconnect or a restart from an earlier slot, the server sends some updates again. Every write must be safe to repeat.
+2. **Updates finish out of order.** The runtime's worker pool runs many updates at once, so slot 1,000,002 can be written before slot 1,000,001. The highest slot written does not prove that every earlier slot is written.
+
+The primary key makes repeated writes safe. The replay margin covers updates that finished out of order, but only those that fall inside the margin. For strict slot order, use the [block coordinator](/docs/outputs/block-coordinator) instead.
+
+<Steps>
+<Step>
+
+### Prepare the database
+
+Create an empty database and a login role. The role must own the database or have permission to create tables. Set the connection string and check it:
+
+```bash
+export DATABASE_URL="postgres://user:password@localhost/indexer?sslmode=disable"
+psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -c 'SELECT current_database(), current_user;'
+```
+
+`psql` prints the database and role names from the connection string. The program connects with `NoTls`, so the server must accept unencrypted connections.
+
+</Step>
+<Step>
+
+### Create the project
+
+```bash
+cargo new transfer-indexer
+cd transfer-indexer
+```
+
+Copy `Shipstern.toml` into this directory. The program reads it from the working directory and takes no `--config` flag.
+
+</Step>
+<Step>
+
+### Add dependencies
+
+Replace the `[dependencies]` table in `Cargo.toml`:
+
+```toml title="Cargo.toml"
+[dependencies]
+rustls = "0.23"
+shipstern = "0.13.0"
+shipstern-core = "0.13.0"
+shipstern-spl-token-parser = "0.13.0"
+shipstern-yellowstone-grpc-source = "0.13.0"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio-postgres = "0.7"
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+```
+
+</Step>
+<Step>
+
+### Add the schema
+
+Save this file as `schema.sql` next to `Cargo.toml`. The program embeds it with `include_str!("../schema.sql")` and runs it at startup, so the tables need no separate setup.
+
+<include cwd lang="sql" meta='title="schema.sql"'>./examples/postgres-indexer/schema.sql</include>
+
+A transaction signature plus the instruction's position identifies one instruction, so the pair is the primary key.
+
+</Step>
+<Step>
+
+### Write the indexer
+
+Replace `src/main.rs`:
+
+<include cwd lang="rust" meta='title="src/main.rs"'>./examples/postgres-indexer/src/main.rs</include>
+
+| Part | What it does |
+| --- | --- |
+| `match value.instruction` | Only `Transfer` and `TransferChecked` become rows. The handler skips every other token instruction. |
+| `ix_path` | The zero-based instruction path joined with dots, such as `0` or `2.1`. It differs from the one-based `{:?}` form that other guides print. |
+| `ON CONFLICT (signature, ix_path) DO NOTHING` | A repeated update inserts nothing. |
+| `$6::text::numeric` | Sends the `u64` amount as text and lets Postgres convert it, since a `u64` does not fit in `BIGINT`. |
+| `GREATEST(...)` on the checkpoint | Out-of-order updates never move the checkpoint backwards. |
+| `tokio::spawn(... connection ...)` | `tokio_postgres::connect` returns a client and a connection. The connection does the network I/O, so it runs in its own task for as long as the client is used. |
+| `RESUME_MARGIN_SLOTS` | On restart, `from_slot` is set 300 slots (about two minutes) before the checkpoint, so slots that were in flight are read again. |
+| `run_async().await` | `main` already runs inside `#[tokio::main]`, so the Shipstern runtime uses that Tokio runtime. |
+
+The checkpoint can be ahead of slots that were still in flight when the process stopped. A restart does not replay an unfinished update older than the margin. The checkpoint is therefore a high-water mark, not a list of completed slots. Raise the margin if handlers can fall further behind.
+
+</Step>
+<Step>
+
+### Run it
+
+From the project directory, with `DATABASE_URL` still set:
+
+```bash
+RUST_LOG=info cargo run
+```
+
+The program creates the tables, connects to the gRPC server and writes a row for each decoded transfer. It runs until `Ctrl+C`.
+
+</Step>
+<Step>
+
+### Check the results
+
+Open a second terminal with the same `DATABASE_URL` and start [psql](https://www.postgresql.org/docs/current/app-psql.html):
+
+```bash
+psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1
+```
+
+```sql
+SELECT count(*), max(slot) FROM token_transfers;
+
+SELECT slot FROM indexer_checkpoint WHERE id = 1;
+
+SELECT signature, ix_path, source, destination, amount
+FROM token_transfers
+ORDER BY slot DESC
+LIMIT 10;
+```
+
+Expect a positive row count and one checkpoint row. The checkpoint advances only for decoded `Transfer` and `TransferChecked` instructions.
+
+Stop the indexer with `Ctrl+C`, note the checkpoint slot, and start it again. Expect a `Resuming` log line with `from` set to the checkpoint minus 300, or 0 if the checkpoint is below 300. Run the queries again. The rows stay unique, and new transfers add to the count. Count growth alone does not prove that the replay filled every gap.
+
+</Step>
+</Steps>
+
+## Common failures
+
+| Symptom | Cause |
+| --- | --- |
+| `Error: NotPresent` at startup | `DATABASE_URL` is not set in this shell. |
+| `Error: Os { code: 2, kind: NotFound, ... }` at startup | `Shipstern.toml` is not in the working directory. |
+| An authentication or connection error | The role, password, host or server access rules need correction, or the server requires TLS. |
+| A `CREATE TABLE` permission error | The role cannot create tables in the database's schema. |
+| `Resuming` never appears after a restart | The checkpoint table is empty because no transfer was written yet. |
+
+## Limits of this design
+
+- **The runtime does not retry failed writes.** It logs a handler error at `error` level and continues with later updates, so a later checkpoint can pass the failed transfer. The insert and the checkpoint update are separate statements, not one database transaction. Add retries and recovery before relying on this design for a complete history.
+- **A resumed run does not reconnect at processed commitment.** On restart the program sets `from_slot`. With `commitment-level` unset or `processed`, a `from_slot` turns reconnect off, so a stream loss ends the run. Set `commitment-level = "confirmed"` in `Shipstern.toml` to resume from a slot checkpoint instead. See [Reconnects](/docs/sources/yellowstone-grpc#reconnects).
+- **Gaps are possible.** A gap can appear if the process is down longer than the server keeps history. Backfill that range from an archive with the [Jetstreamer source](/docs/reference/configuration#jetstreamer-source).
+- **Rows are not grouped by slot.** A reader can see some transfers of a slot before others. Use the [block coordinator](/docs/outputs/block-coordinator) if that matters.
+- **One write per transfer.** For high volume, batch rows in a separate task fed by a channel, as in [Handlers](/docs/runtime/handlers#forward-values-to-another-task).
+
+## See also
+
+- [Run in production](/docs/runtime/production): commitment levels, shutdown and alerts.
+- [Handlers](/docs/runtime/handlers): more handler patterns.
+- [Block coordinator](/docs/outputs/block-coordinator): write complete slots in order.

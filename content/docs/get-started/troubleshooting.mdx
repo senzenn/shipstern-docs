@@ -1,0 +1,161 @@
+---
+title: Troubleshoot Shipstern
+sidebarTitle: Troubleshooting
+description: Common failures while building and running a Shipstern pipeline, with the cause and the fix.
+llmsDescription: Troubleshooting guide for Shipstern pipelines organised by symptom. Build problems (rustc version below 1.97.1 rejected by the Agave 4.3.2 crates, native -sys crate build failures, mismatched type errors from mixed shipstern crate versions, runtime.handle() missing for non-gRPC sources, program-events feature changing InstructionParser::Output, include_shipstern_parser! failing to load an Anchor IDL with unsupported Anchor IDL spec, a missing metadata.address or Failed to convert Anchor IDL), startup problems (rustls CryptoProvider panic, config parse errors from kebab-case versus snake_case keys, IDL rejected for programNode.origin), runtime problems (no data arriving, invalid compression flag from a wrong x-token, ResourceExhausted after a filter update in each reconnect mode, ServerHangup when a clean close is not resumed, FailedPrecondition from a server without bank IDs, OutOfRange when the server no longer holds the resume slot, from_slot is not supported from a server with replay off, growing lag from slow handlers, RPC source loading too many accounts, rising parse error counters from DiscriminatorNotFound) and test problems (rate-limited devnet fixtures, UNIMPLEMENTED from Vixen-era gRPC clients).
+---
+
+Each entry names a symptom, its cause and the fix, grouped by when the problem appears. The [error reference](/docs/reference/errors) lists typed errors such as `BuilderError` and `PrefilterError`.
+
+## Build
+
+### The build fails on a Rust older than 1.97.1
+
+Cargo stops before it compiles anything, with `rustc ... is not supported by the following package` and a line such as `agave-fs@4.3.2 requires rustc 1.97.1`. `shipstern-mock` and the Solana RPC, snapshot and Jetstreamer sources build on Agave 4.3.2, whose crates declare Rust 1.97.1. Update the toolchain:
+
+```bash
+rustup update stable
+```
+
+### A `-sys` crate fails to build
+
+A native dependency is missing a system library or build tool. Match the error text, then install the packages for the build machine's system from [System packages](/docs/get-started/installation#system-packages):
+
+| Error text | Missing | Needed by |
+| --- | --- | --- |
+| `failed to find tool` | A C or C++ compiler | Every Shipstern project |
+| `Could not find directory of OpenSSL installation` | `pkg-config` and the OpenSSL headers (Linux) | Every Shipstern project |
+| ``is `cmake` not installed?`` | CMake | `shipstern-kafka-sink` |
+
+### Mismatched types between two Shipstern types with the same name
+
+rustc expects one `Prefilter`, `InstructionUpdate` or other Shipstern type and finds another with the same path. Two versions of a `shipstern*` crate are in the build, and each brings its own copy of the shared types. Find them:
+
+```bash
+cargo tree -d | grep shipstern
+```
+
+Put every `shipstern*` dependency on the same version, from the same place (crates.io or the git tag).
+
+### `runtime.handle()` does not compile
+
+`Runtime::handle()` exists only when the source implements `FilterUpdateSource`. In 0.13.0, that is `YellowstoneGrpcSource`, or a `Box<dyn FilterUpdateSource>` that holds one. A runtime built over the default `Box<dyn SourceTrait>`, or over any other source, has no handle, because those sources cannot change their subscription while running.
+
+### `InstructionParser::Output` changed type after adding a dependency
+
+Some crate in the workspace enabled the `program-events` feature of `shipstern-proc-macro`. Cargo unifies features, so each generated parser whose IDL declares events now returns `ProgramEventOutput` instead of `Instructions`. IDLs without events keep the original output type. Handle the new type, or move the crates that need different settings into separate workspaces.
+
+### `include_shipstern_parser!` fails with `Failed to load/parse IDL`
+
+The rest of the message gives the cause:
+
+- `unsupported Anchor IDL spec`: the file has no top-level `kind` and no `program` object, so the macro read it as an Anchor IDL. It is neither spec `0.1.0` nor a legacy Anchor IDL. Regenerate it with Anchor 0.30 or later, or pass Codama JSON.
+- `legacy IDL has no program id`: add the program id to `metadata.address`.
+- `Failed to convert Anchor IDL`, followed by an item such as ``instruction `swap` ``: fix that item. See [Build errors name the item](/docs/parsers/idl-codegen#build-errors-name-the-item).
+
+## Startup
+
+### Panic: `Could not automatically determine the process-level CryptoProvider`
+
+The TLS crypto provider was not installed, and rustls cannot pick one from its crate features. Add this as the first statement of `main`:
+
+```rust
+rustls::crypto::aws_lc_rs::default_provider()
+    .install_default()
+    .expect("Failed to install rustls crypto provider");
+```
+
+### `Error parsing config`
+
+The quickstart prints this message when `toml::from_str` fails, for example ``Error parsing config: missing field `timeout` ``. The examples print only the error's message, because its `Debug` form holds the whole file, `x-token` included. Check that the file has a `[source]` section with every required key, and that the key casing matches the selected source. Yellowstone gRPC and Fumarole use kebab-case (`x-token`, `commitment-level`). Solana RPC and snapshot use snake_case (`commitment_level`, `ledger_path`). The full list is in the [configuration reference](/docs/reference/configuration).
+
+### `Yellowstone client builder error` with `dns error`
+
+The run stops at once with exit status 1, and the error chain ends with `failed to lookup address information`. The endpoint host does not resolve. Check that `endpoint` in `Shipstern.toml` is the provider's Yellowstone gRPC URL, not the placeholder `yellowstone.example.com`.
+
+### The IDL fails to load with a message about `programNode.origin`
+
+Since 0.11.0, `origin` in Codama JSON must be `"anchor"` or `"shank"`. Change it or remove the field.
+
+## Running
+
+### The runtime starts but no data arrives
+
+Work through these in order:
+
+1. Check that `endpoint` is a Yellowstone gRPC URL for the intended cluster. Confirm the token and the provider's filter permissions.
+2. Run with `RUST_LOG=info,shipstern=debug`. Look for `Subscribing to gRPC stream`, `gRPC stream started` and any later errors. The start message means only that the client opened a stream. A later error can still reject its request.
+3. Check that a matching account or transaction changes on that cluster. A connected stream can remain quiet when nothing matches its filters.
+4. With metrics enabled, check `shipstern_accounts_received` or `shipstern_transactions_received` for incoming updates. Then check `shipstern_*_parsing_errors` and `shipstern_*_handler_errors` for failures. See [Metrics](/docs/observability/metrics#how-updates-are-counted).
+5. Check the prefilter. `transaction_accounts` requires all listed accounts. Use `transaction_accounts_include` to require one.
+6. Check `commitment-level`. A `finalized` subscription waits for finalisation before delivering updates.
+
+`ParseError::Filtered` skips handlers but still increments `*_successful`. That counter alone does not prove that a handler received a value. The quickstart's `Logger` prints each value it receives. Custom handlers need their own output or counters.
+
+### `invalid compression flag: 32` repeats twice a second
+
+The log shows `received message with invalid compression flag: 32`, and no data arrives. A wrong `x-token` causes this error, with status `Internal`. With `processed` or no `commitment-level`, the client logs it as `WARN yellowstone_grpc_client::reconnect: stream error: ...` and subscribes again. That warning shows only at `RUST_LOG=warn` or a more detailed level. The run ends after `reconnect-max-retries` reconnects in a row. At `confirmed` or `finalized` with no `from-slot`, the run ends at the first error. Check `x-token` in `Shipstern.toml`, then run the program again.
+
+### `ResourceExhausted` ends the run after a filter update
+
+The provider refused the new filter set, usually because it exceeds the provider's filter limits. A filter update needs a `RuntimeHandle`. With a handle, a stream at `processed` or with no `commitment-level` does not reconnect, so the run ends at once. At `confirmed` or `finalized`, the source treats `ResourceExhausted` as recoverable. It subscribes again with the newest set, the provider refuses it again, and the run ends with that status once `reconnect-max-retries` is spent. With the default, that takes about 65 s.
+
+Send a smaller set, or call `handle.reset_filters()`. At `confirmed` or `finalized`, the next attempt uses a set sent before the retries run out. Check new sets against the provider's limits before sending them.
+
+[Bank replay](/docs/reference/configuration#yellowstone-grpc-source) is the reconnect at `processed` with no `from-slot`, and it takes no `RuntimeHandle`. In bank replay the client also treats a `ResourceExhausted` from the server as recoverable, and subscribes again with the same request up to `reconnect-max-retries` times. A `ResourceExhausted` that the client raises itself, such as `bank tracking limit reached`, ends the run at once.
+
+### The run ends with `Yellowstone stream hung up unexpectedly`
+
+The server closed the stream without an error status (`Error::ServerHangup`), for example during a restart, and the source did not resume it. That happens when reconnect is off: with `auto-reconnect = false`, with `reconnect-max-retries = 0`, or on a `processed` stream with a `from-slot` or a `RuntimeHandle`.
+
+At `confirmed` or `finalized`, the source resumes a clean close. It ends with this error only when the retries run out, or when the close comes before the first checkpoint and no `from-slot` is set. In bank replay, the client reconnects after a clean close, and when the retries run out the run ends with `YellowstoneStatus` (`Unavailable`) instead.
+
+Run the binary under a supervisor that restarts it.
+
+### `FailedPrecondition` ends the run on an older server
+
+The run ends with status `FailedPrecondition` and a message such as `cannot track an account update without bank_id`. The log also has a warning that names `auto-reconnect = false`. With `processed` or no `commitment-level`, and with no `from-slot` and no `RuntimeHandle`, the source reconnects through the client's bank replay. Bank replay needs bank IDs, and a yellowstone-grpc server on proto 12.7 or older sends none. The run then ends at the first account update or at the first reconnect. Set `auto-reconnect = false` in `[source]`, or use a server on proto 13 or newer. With reconnect off, run the binary under a supervisor.
+
+### `OutOfRange` ends the run after a reconnect
+
+The server no longer holds the slot that the reconnect resumes from. A server keeps a set number of recent slots, not a time span: 150 by default on yellowstone-grpc, and about 1,000 on Triton shared mainnet. An outage longer than that window cannot be recovered, and neither reconnect mode retries `OutOfRange`. Restart the run. The updates from the gap do not arrive on the new stream. If outages last longer than the window, use a server that keeps more slots.
+
+### `from_slot is not supported` ends the run
+
+The run ends with status `Internal` and the message `from_slot is not supported`. The server has replay off (a yellowstone-grpc server with `replay_stored_slots` set to 0), so it refuses a request that names a start slot. The source names a start slot when `from-slot` is set and on each resume at `confirmed` or `finalized`, and ends the run at once on this answer. In bank replay, the client names one on each reconnect and retries the refusal until `reconnect-max-retries` is spent. Remove `from-slot`, and set `auto-reconnect = false` or use a server that stores slots.
+
+### Lag keeps growing
+
+The handlers are slower than the stream. Either:
+
+- raise `jobs` in `[buffer]` if handlers wait on I/O and can run in parallel, or
+- move slow work out of the handler into a separate task fed by a bounded channel (see [Handlers](/docs/runtime/handlers#forward-values-to-another-task)).
+
+When handlers are cheap, the source is the limit, and raising `jobs` does not help.
+
+### The RPC source loads far more accounts than the prefilter allows
+
+The Solana RPC and snapshot sources select by account owner only. They do not apply memcmp, data size or `accounts` filters, so they fetch every account the owner holds. Filter in the parser or handler, or use the gRPC source.
+
+### `shipstern_*_parsing_errors` keeps rising
+
+For a generated parser, the usual cause is `DiscriminatorNotFound`. The program has an instruction or account that the IDL does not describe. Fetch the IDL of the deployed program again, and convert it again when using Codama JSON. `Account does not exist at index N` means an instruction passed fewer accounts than the IDL lists; see [Limits](/docs/parsers/idl-codegen#limits). The runtime logs each parse error at `error` level with its message.
+
+### A gRPC client gets `UNIMPLEMENTED` from a Shipstern stream server
+
+The client was generated from Yellowstone Vixen `.proto` files (`vixen.stream`). Regenerate it from Shipstern's `shipstern.stream` protos. See [Migrate from Yellowstone Vixen](/docs/releases/migrations/vixen-to-shipstern#regenerate-grpc-stream-clients).
+
+## Testing
+
+### Fixture tests fail with HTTP 429 or time out
+
+The default `https://api.devnet.solana.com` endpoint is rate-limited. Point `RPC_ENDPOINT` at a dedicated devnet node:
+
+```bash
+RPC_ENDPOINT=https://my-devnet-rpc.example.com cargo test
+```
+
+## See also
+
+- [Error reference](/docs/reference/errors): every typed error variant and its fix.
+- [Run in production](/docs/runtime/production): reconnects, shutdown and the metrics to alert on in a deployed pipeline.

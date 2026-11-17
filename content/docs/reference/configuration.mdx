@@ -1,0 +1,170 @@
+---
+title: Shipstern Configuration Reference
+sidebarTitle: Configuration
+description: Every Shipstern.toml key for the buffer and each source, with types and defaults.
+llmsDescription: Complete reference of Shipstern configuration keys. Covers buffer limits and Yellowstone gRPC, Fumarole, Solana RPC and snapshot source keys, including how commitment-level picks the gRPC reconnect mode (SlotResume at confirmed or finalized, BankReplay at processed, Off otherwise) and the reconnect retry budget. Includes JetstreamSourceConfig and SlotRangeConfig, exclusive end slots, sequential and reverse replay, CLI versus Serde defaults, memory windows, progress logs and optional control channels.
+---
+
+`Shipstern.toml` has a required `[source]` section and an optional `[buffer]` section. The `[source]` keys depend on the source named in `build::<S>(config)`.
+
+<Note>
+Key casing differs between sources. The gRPC, Fumarole, preconfirmation and Jetstreamer sources use kebab-case (`x-token`, `archive-url`). The Solana RPC and snapshot sources use snake_case (`commitment_level`, `ledger_path`).
+</Note>
+
+## Buffer
+
+```toml
+[buffer]
+jobs = 8
+sources-channel-size = 100
+```
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `jobs` | integer | number of CPUs | Maximum outstanding work, queued plus in flight. Zero is clamped to one. |
+| `sources-channel-size` | integer | `100` | Capacity of the channel between the source and the runtime. Must be greater than zero. Zero panics when the run creates the channel. |
+
+## Yellowstone gRPC source
+
+`YellowstoneGrpcSource`, from `shipstern-yellowstone-grpc-source`.
+
+```toml
+[source]
+endpoint = "https://yellowstone.example.com"
+x-token = "<X-TOKEN>"
+timeout = 60
+```
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `endpoint` | string | required | Server URL. |
+| `x-token` | string | none | Authentication token. |
+| `timeout` | integer (seconds) | required | Connect timeout and request timeout. The `120` default applies only to the `--timeout` command-line flag. |
+| `commitment-level` | `processed`, `confirmed`, `finalized` | server default, `processed` | Subscription commitment. It also picks the reconnect mode; see `auto-reconnect`. |
+| `from-slot` | integer | none | Slot the first subscription starts from. Filter updates do not resend it. At `processed` it turns reconnect off. A server with replay off answers `from_slot is not supported`, and the run ends. |
+| `max-decoding-message-size` | integer (bytes) | unlimited | Largest message to decode. |
+| `accept-compression` | `gzip`, `zstd` | `zstd` | Accepted compression. |
+| `auto-reconnect` | boolean | `true` | Recovers a lost stream. At `confirmed` or `finalized` the source resubscribes from a slot checkpoint with the newest filter set (`SlotResume`) and adds its own `slots` filter. At `processed` with no `from-slot` and no `RuntimeHandle`, the client replays the cut-off banks (`BankReplay`) and adds its own `blocks_meta` and `slots` filters. Otherwise the stream stops on a loss. Both modes need a server that stores slots. Bank replay also needs bank IDs (yellowstone-grpc proto 13 or newer), so at `processed` set `false` for an older server. `YellowstoneGrpcConfig::reconnect_mode` returns the mode. |
+| `reconnect-max-retries` | integer | `10` | Reconnect attempts in a row before the run ends. Waits start at 500 ms and double. At `confirmed` or `finalized` each wait is capped at 10 s, so 10 retries span about 65 s. Bank replay has no cap: about 8.5 minutes. `0` turns reconnect off. |
+| `accounts-data-slice` | array of `{ offset, length }` | full data | Account data windows for the whole subscription. Windows must ascend by offset and must not overlap. The source checks this before connecting. |
+
+## Fumarole source
+
+`YellowstoneFumaroleSource`, from `shipstern-yellowstone-fumarole-source`.
+
+```toml
+[source]
+endpoint = "https://fumarole.example.com"
+x-token = "<X-TOKEN>"
+subscriber-name = "my_subscriber_group"
+```
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `endpoint` | string | required | Fumarole server URL. |
+| `x-token` | string | none | Authentication token. |
+| `subscriber-name` | string | required | Persistent subscriber (consumer group) name. |
+| `commitment-level` | `processed`, `confirmed`, `finalized` | none | Slot commitment level. |
+| `max-decoding-message-size` | integer (bytes) | unlimited | Largest message to decode. |
+| `accept-compression` | `gzip`, `zstd` | none | Compression for requests and responses. Without it, the stream is not compressed. |
+
+## Preconfirmation source
+
+`PreconfSource`, from `shipstern-preconf-source`. Set `x-token` and at least one region.
+
+```toml
+[source]
+x-token = "<X-TOKEN>"
+harmonic-regions = ["fra"]
+```
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `endpoint` | string | `https://preconfs.rpcpool.com` | The Triton preconfs endpoint. |
+| `x-token` | string | none | The Triton token. Triton enables each feed on it separately. |
+| `harmonic-regions` | array of strings | `[]` | Harmonic regions, one stream each. |
+| `bam-regions` | array of strings | `[]` | BAM regions, one stream each. At least one of the two lists needs a region. |
+| `timeout` | integer (seconds) | `10` | Bound for the TCP connect, the TLS handshake and each subscribe. |
+| `auto-reconnect` | boolean | `true` | Subscribes a stream again after it ends or fails with a retryable code. |
+| `reconnect-max-retries` | integer | none | Resubscribes in a row before the source stops. With none set, the source never gives up. With `0`, it never resubscribes. |
+
+See [Preconfirmations](/docs/sources/preconf#configure-the-source) for the regions and the reconnect rules.
+
+## Solana RPC source
+
+`SolanaAccountsRpcSource`, from `shipstern-solana-rpc-source`. It fetches the accounts owned by each prefilter's `account_owners` with `getProgramAccounts`, then finishes. It ignores the other prefilter fields.
+
+```toml
+[source]
+endpoint = "https://api.mainnet-beta.solana.com"
+timeout = 60
+commitment_level = "confirmed"
+```
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `endpoint` | string | required | JSON-RPC URL. |
+| `timeout` | integer (seconds) | required | Request timeout. |
+| `commitment_level` | `processed`, `confirmed`, `finalized` | `confirmed` | Commitment for the request. |
+
+## Snapshot source
+
+`SolanaSnapshotSource`, from `shipstern-solana-snapshot-source`. It loads a local ledger snapshot, emits one finalized slot update and the accounts owned by the prefilters' `account_owners`, then finishes.
+
+```toml
+[source]
+ledger_path = "/path/to/ledger"
+channel_size = 1000
+```
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `ledger_path` | path | required | Ledger directory holding `genesis.bin` or `genesis.tar.bz2` and a `snapshots/` folder. |
+| `channel_size` | integer | required | Capacity of the internal account channel. |
+
+## Jetstreamer source
+
+`JetstreamSource`, from `shipstern-jetstream-source`, takes a `JetstreamSourceConfig`: archive URL, slot or epoch range, threads, network, and the sequential and reverse replay options. The released [`examples/jetstreamer`](https://github.com/solana-rpc/shipstern/tree/v0.13.0/examples/jetstreamer) builds it in code from command-line flags. `JetstreamSource` also implements `FromConfig`, so a `[source]` table with a `[source.range]` table works in `Shipstern.toml`. In TOML, write the field names below with hyphens, for example `archive-url` and `slot-start`.
+
+### Select the replay range
+
+Set `range` to a `SlotRangeConfig`. Supply either both slot bounds or one epoch, never both modes.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `slot_start` | `Option<u64>` | First included slot |
+| `slot_end` | `Option<u64>` | First excluded slot; must exceed `slot_start` |
+| `epoch` | `Option<u64>` | One whole epoch; both slot bounds must be `None` |
+
+A range from `100` to `200` includes slots `100` through `199`. An epoch covers 432,000 slots. With missing or conflicting bounds, the run stops with `SlotRangeResolution` when the source connects. The range selects finalized archive data and does not fill gaps outside that archive.
+
+### Set replay options
+
+The fields below belong to `JetstreamSourceConfig`. Defaults marked "CLI" apply only to command-line flags. The others also apply when the config is deserialised. A Rust struct literal must set every field.
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `archive_url` | `String` | required | Logged at startup. In 0.13.0 the replay does not read it. |
+| `threads` | `usize` | `4` (CLI) | Firehose worker count; download range concurrency in sequential mode |
+| `network` | `String` | `mainnet` (CLI) | Archive network |
+| `compact_index_base_url` | `String` | `https://files.old-faithful.net` (CLI) | Compact index service |
+| `network_capacity_mb` | `usize` | `1000` (CLI) | Upstream network-capacity setting, in MB |
+| `sequential` | `bool` | `false` | One firehose worker with parallel range downloads |
+| `reverse` | `bool` | `false` | Epochs from highest to lowest; enables sequential mode |
+| `buffer_window_bytes` | `Option<u64>` | `None` | Download window size; `None` uses 256 MiB in sequential or reverse mode |
+| `stats_interval_slots` | `u64` | `10000` | Progress log interval; `0` disables progress logs |
+| `possible_leader_skipped_tx` | optional channel sender | `None` | Receives `PossibleLeaderSkippedEvent`; set in code only |
+| `shutdown_signal_tx` | optional broadcast sender | `None` | Send `()` to request upstream shutdown at the next slot boundary; set in code only |
+
+`reverse` changes epoch order only. Slots inside each epoch still arrive in ascending order, because the archive streams forward. Without sequential mode, several workers can finish their work out of order.
+
+`buffer_window_bytes` applies only in sequential or reverse mode. A larger window needs more memory and takes longer to fill before the first block. The 256 MiB default limits that initial download. It does not cap the application's total memory use.
+
+### Initialise the process environment
+
+Call the `unsafe fn init_process_env` from `main` before creating Tokio or any other thread. It writes process-wide environment variables, and its safety contract requires that no other threads exist. `connect` checks that the process environment still matches the source config. See the released example for the complete setup and the [released source](https://github.com/solana-rpc/shipstern/blob/v0.13.0/crates/jetstreamer-source/src/lib.rs) for field definitions.
+
+## See also
+
+- [Configuration guide](/docs/get-started/configuration): how the file is loaded.
+- [Sources](/docs/sources): choosing a source.

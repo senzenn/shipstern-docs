@@ -1,0 +1,164 @@
+---
+title: Migrate from Yellowstone Vixen to Shipstern
+sidebarTitle: Vixen to Shipstern (0.8)
+description: Rename crates, imports, macros, metrics and protobuf packages when moving from Yellowstone Vixen 0.7 to Shipstern 0.8 or later.
+llmsDescription: Migration guide from Yellowstone Vixen (rpcpool/yellowstone-vixen, up to 0.7.x) to Shipstern (solana-rpc/shipstern, 0.8.0 and later). Lists every crate rename from yellowstone-vixen-* to shipstern-*, Rust path renames (yellowstone_vixen to shipstern), type renames (VixenConfig to ShipsternConfig, VixenCompressionEncoding to ShipsternCompressionEncoding), the yellowstone_vixen::vixen_core re-export becoming shipstern::shipstern_core, the include_vixen_parser! macro becoming include_shipstern_parser!, the #[vixen] attribute becoming #[shipstern], Prometheus metrics renamed from vixen_* to shipstern_*, tracing spans renamed from vixen.* to shipstern.*, the example config file renamed from Vixen.example.toml to Shipstern.example.toml, and the breaking protobuf wire change from vixen.* to shipstern.* packages including the gRPC method path /shipstern.stream.ProgramStreams/Subscribe and google.protobuf.Any type URLs.
+---
+
+In 0.8.0, Yellowstone Vixen was renamed to Shipstern and the repository moved from `rpcpool/yellowstone-vixen` to [`solana-rpc/shipstern`](https://github.com/solana-rpc/shipstern). Most of the migration is search and replace. The exception is the protobuf wire change, which affects every client of the gRPC stream server.
+
+## Who needs this
+
+| Existing integration | Required change |
+| --- | --- |
+| Vixen crates in a Rust project | Rename crates, imports, macros and types |
+| Dashboards or alerts on `vixen_*` metrics | Rename the metrics |
+| Log or trace filters on `vixen.*` spans | Rename the spans |
+| Clients of the `yellowstone-vixen-stream` gRPC server | Regenerate clients from the new `.proto` files |
+
+<Steps>
+<Step>
+
+### Rename the crates
+
+Replace the `yellowstone-vixen` prefix with `shipstern` and move to `0.8.0` or later:
+
+```diff title="Cargo.toml"
+ [dependencies]
+-yellowstone-vixen = "0.7"
+-yellowstone-vixen-yellowstone-grpc-source = "0.7"
+-yellowstone-vixen-spl-token-parser = "0.7"
++shipstern = "0.13.0"
++shipstern-yellowstone-grpc-source = "0.13.0"
++shipstern-spl-token-parser = "0.13.0"
+```
+
+| Vixen crate | Shipstern crate |
+| --- | --- |
+| `yellowstone-vixen` | `shipstern` |
+| `yellowstone-vixen-core` | `shipstern-core` |
+| `yellowstone-vixen-parser` | `shipstern-parser` |
+| `yellowstone-vixen-proc-macro` | `shipstern-proc-macro` |
+| `yellowstone-vixen-proto` | `shipstern-proto` |
+| `yellowstone-vixen-mock` | `shipstern-mock` |
+| `yellowstone-vixen-stream` | `shipstern-stream` |
+| `yellowstone-vixen-yellowstone-grpc-source` | `shipstern-yellowstone-grpc-source` |
+| `yellowstone-vixen-yellowstone-fumarole-source` | `shipstern-yellowstone-fumarole-source` |
+| `yellowstone-vixen-solana-rpc-source` | `shipstern-solana-rpc-source` |
+| `yellowstone-vixen-solana-snapshot-source` | `shipstern-solana-snapshot-source` |
+| `yellowstone-vixen-jetstream-source` | `shipstern-jetstream-source` |
+| `yellowstone-vixen-spl-token-parser` | `shipstern-spl-token-parser` |
+| `yellowstone-vixen-spl-token-extensions-parser` | `shipstern-spl-token-extensions-parser` |
+| `yellowstone-vixen-stake-pool-parser` | `shipstern-stake-pool-parser` |
+| `yellowstone-vixen-bpf-loader-parser` | `shipstern-bpf-loader-parser` |
+| `yellowstone-vixen-block-meta-parser` | `shipstern-block-meta-parser` |
+| `yellowstone-vixen-slot-parser` | `shipstern-slot-parser` |
+| `yellowstone-vixen-block-coordinator` | `shipstern-block-coordinator` |
+| `yellowstone-vixen-kafka-sink` | `shipstern-kafka-sink` |
+
+</Step>
+<Step>
+
+### Rename Rust paths, types and macros
+
+```diff title="src/main.rs"
+-use yellowstone_vixen::Pipeline;
+-use yellowstone_vixen_proc_macro::include_vixen_parser;
+-use yellowstone_vixen_yellowstone_grpc_source::YellowstoneGrpcSource;
++use shipstern::Pipeline;
++use shipstern_proc_macro::include_shipstern_parser;
++use shipstern_yellowstone_grpc_source::YellowstoneGrpcSource;
+
+-include_vixen_parser!("idl.json");
++include_shipstern_parser!("idl.json");
+
+-yellowstone_vixen::Runtime::<YellowstoneGrpcSource>::builder()
++shipstern::Runtime::builder()
+     .account(Pipeline::new(AccountParser, [Logger]))
+-    .build(config)
++    .build::<YellowstoneGrpcSource>(config)
+```
+
+The builder change comes from 0.12.0, which moved the source name from `Runtime` to the build call. A custom source also needs the [0.12.0 upgrade steps](/docs/releases/v0-12-0), because `SourceTrait` changed in that release.
+
+| Vixen | Shipstern |
+| --- | --- |
+| `yellowstone_vixen::*`, `yellowstone_vixen_*::*` | `shipstern::*`, `shipstern_*::*` |
+| `include_vixen_parser!` | `include_shipstern_parser!` |
+| `#[vixen]`, `#[vixen(oneof)]`, `#[vixen(enumeration)]` | `#[shipstern]`, `#[shipstern(oneof)]`, `#[shipstern(enumeration)]` |
+| `yellowstone_vixen::vixen_core` (re-export of the core crate) | `shipstern::shipstern_core` |
+| `VixenConfig` | `ShipsternConfig` |
+| `VixenCompressionEncoding` (Fumarole source) | `ShipsternCompressionEncoding` |
+
+A project-wide replace handles most of it. `perl -pi` behaves the same on Linux and macOS:
+
+```bash
+grep -rl --include='*.rs' --include='*.toml' --exclude-dir=target -e 'vixen' -e 'Vixen' . \
+  | xargs perl -pi -e '
+      s/yellowstone-vixen/shipstern/g;
+      s/yellowstone_vixen/shipstern/g;
+      s/\bvixen_core\b/shipstern_core/g;
+      s/include_vixen_parser/include_shipstern_parser/g;
+      s/#\[vixen/#[shipstern/g;
+      s/Vixen(Config|CompressionEncoding)/Shipstern$1/g;
+    '
+```
+
+Review the diff before committing.
+
+</Step>
+<Step>
+
+### Rename the config file (optional)
+
+The repository's example config moved from `Vixen.example.toml` to `Shipstern.example.toml`. Shipstern does not look for a config file by name. The application reads the path it is given, and the examples take it from `--config`, so renaming `Vixen.toml` is optional. After a rename, update the scripts that pass the path.
+
+</Step>
+<Step>
+
+### Update metrics and tracing filters
+
+Every Prometheus metric and tracing span changed prefix:
+
+| Vixen | Shipstern |
+| --- | --- |
+| `vixen_accounts_received` (and every `vixen_*` counter) | `shipstern_accounts_received` (and every `shipstern_*` counter) |
+| `vixen.process.account` (and the other `vixen.process.*` spans) | `shipstern.process.account` (and the other `shipstern.process.*` spans) |
+| `vixen.parse`, `vixen.handle` | `shipstern.parse`, `shipstern.handle` |
+
+Update dashboards, alerts and `RUST_LOG` filters. Old and new series do not join, so expect a break in historical graphs at the upgrade.
+
+</Step>
+<Step>
+
+### Regenerate gRPC stream clients
+
+<Warning>
+This is a wire-protocol change. Clients generated from the Vixen `.proto` files fail against a Shipstern server with `UNIMPLEMENTED`, and old `Any` type-URL matches stop matching without an error.
+</Warning>
+
+| Item | Vixen | Shipstern |
+| --- | --- | --- |
+| Stream package | `vixen.stream` | `shipstern.stream` |
+| Parser packages | `vixen.parser.token`, `vixen.parser.token_extensions`, `vixen.parser.bpf_loader` | `shipstern.parser.token`, `shipstern.parser.token_extensions`, `shipstern.parser.bpf_loader` |
+| gRPC method | `/vixen.stream.ProgramStreams/Subscribe` | `/shipstern.stream.ProgramStreams/Subscribe` |
+| `Any` type URL example | `type.googleapis.com/vixen.parser.token.TokenAccount` | `type.googleapis.com/shipstern.parser.token.TokenAccount` |
+
+Regenerate clients from the `.proto` files in [`crates/proto/proto`](https://github.com/solana-rpc/shipstern/tree/v0.13.0/crates/proto/proto) and update any code that matches on type URLs.
+
+</Step>
+</Steps>
+
+## Also in 0.8.0
+
+The rename release also changed the Jetstreamer source:
+
+- `JetstreamSourceConfig` gained `reverse: bool`. Struct literals must set it. TOML and CLI configs default it to `false`.
+- Sequential replays use a bounded 256 MiB buffer window by default, which fixes replays that could hang.
+
+See the [changelog](/docs/releases#v0-8-0) for the rest.
+
+## See also
+
+- [Changelog](/docs/releases): every release since the rename.
+- [Versions and upgrades](/docs/releases/versioning): how to move across several releases.

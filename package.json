@@ -1,0 +1,41 @@
+{
+  "name": "shipstern-docs",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "next build",
+    "dev": "next dev",
+    "start": "next start",
+    "types:check": "next typegen && tsc --noEmit",
+    "lint": "eslint",
+    "lint:content": "node scripts/lint-content.mjs",
+    "check": "npm run lint:content && npm run lint && npm run types:check && npm run build",
+    "check:examples": "cd examples && cargo check --locked --workspace --all-targets && cargo check --locked --manifest-path stream-server/Cargo.toml && cargo check --locked --manifest-path kafka-sink/Cargo.toml && cargo check --locked --all-targets --manifest-path all-sources/Cargo.toml && cargo check --locked --manifest-path pump-trade-events/Cargo.toml && cargo check --locked --all-targets --manifest-path advanced-parsers/Cargo.toml && cargo check --locked --all-targets --manifest-path stream-replay/Cargo.toml",
+    "test:examples": "cd examples && cargo test -p snippets --locked --lib -- --skip fixture_tests && cargo test -p several-programs --locked && cargo test --locked --manifest-path advanced-parsers/Cargo.toml && cargo test --locked --manifest-path stream-replay/Cargo.toml"
+  },
+  "dependencies": {
+    "fumadocs-core": "16.16.0",
+    "fumadocs-mdx": "15.4.6",
+    "fumadocs-ui": "npm:@fumadocs/base-ui@16.16.0",
+    "lucide-react": "^1.50.0",
+    "mermaid": "^12.1.0",
+    "next": "16.3.8",
+    "next-themes": "^0.4.6",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/mdx": "^2.0.14",
+    "@types/node": "^26.6.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "eslint": "^9.39.4",
+    "eslint-config-next": "16.3.8",
+    "github-slugger": "^2.0.0",
+    "postcss": "^8.5.28",
+    "tailwindcss": "^4.3.3",
+    "typescript": "~5.9.3"
+  }
+}

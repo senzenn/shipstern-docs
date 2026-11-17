@@ -1,0 +1,13 @@
+{
+  "title": "Reference",
+  "description": "Crates and configuration keys",
+  "icon": "BookOpenText",
+  "root": true,
+  "pages": [
+    "cheat-sheet",
+    "crates",
+    "configuration",
+    "errors",
+    "glossary"
+  ]
+}

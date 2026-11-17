@@ -1,0 +1,71 @@
+---
+title: Delivery, Ordering and Checkpoints
+sidebarTitle: Delivery and Ordering
+description: Separate stream recovery from durable processing, preserve order where required and resume safely.
+llmsDescription: Delivery and ordering behaviour of Shipstern 0.13.0. Updates run concurrently under the jobs limit, pipeline handlers run concurrently, handler errors are logged without retries and source reconnect checkpoints do not acknowledge database writes. Covers idempotency keys, account write versions, application-owned processing checkpoints, finite-source and signal shutdown drain limits, bounded writer channels, and when to use the block coordinator or transactional Kafka sink.
+---
+
+Shipstern routes updates to parsers and handlers. Durable writes, handler retries and processing checkpoints belong to the application. A source's replay position tracks stream progress, not completed handler work.
+
+```mermaid
+flowchart LR
+    S[Source] --> H[Concurrent handlers]
+    H --> D[(Durable writes)]
+    D --> C[Checkpoint]
+```
+
+## Preserve the required order
+
+| Scope | Behaviour |
+| --- | --- |
+| Updates | Up to `jobs` outstanding jobs; completion order can differ from receive order |
+| Handlers in one pipeline | Run concurrently; no handler is guaranteed to run before another |
+| Transaction and instruction pipelines | Run concurrently for the same transaction |
+| Instructions within one transaction | One at a time, parent before children, in tree order. For each instruction, the instruction pipelines run one after another in registration order. |
+
+Use `jobs = 1` when update jobs must not overlap. This does not serialise the handlers within a pipeline, and it does not reorder source updates into slot order. Put dependent operations in one handler.
+
+For ordered, complete instruction slots, use the [block coordinator](/docs/outputs/block-coordinator). Its transaction gate needs all executed transactions, including failures. The [Kafka sink](/docs/outputs/kafka-sink) connects this gate to an ordered output.
+
+## Treat handler errors as processing failures
+
+The runtime logs and counts a returned handler error, and later updates continue. Shipstern does not retry the handler, reconnect because a write failed, or keep a durable queue of failed records. Without retries in the handler or a persisted failure record, the failed write is lost and a later checkpoint can move past it.
+
+Source reconnection does not know whether handlers succeeded. A slot resume at `confirmed` or `finalized` drops only the repeats it has a record of, and the bank replay at `processed` can deliver the cut-off bank twice. Reconnection does not replace idempotent writes, and it does not make durable writes at-least-once. See [Reconnects](/docs/sources/yellowstone-grpc#reconnects).
+
+## Choose stable record keys
+
+| Record | Starting point for an idempotency key |
+| --- | --- |
+| Instruction | Transaction signature and instruction `path` |
+| Live account write | Account pubkey, slot and `write_version` |
+| RPC or snapshot account state | Account pubkey and the application's snapshot/version identity |
+
+An account can change several times in one slot, so pubkey and slot alone collapse distinct writes. RPC and snapshot sources emit `write_version = 0` and `is_startup = true`: each update is a state load, not one write in a sequence. Data at `processed` commitment can belong to an abandoned fork, so choose the required commitment before treating a row as final.
+
+## Store a processing checkpoint
+
+Persist a replay checkpoint only after every required write through that point completes. The highest slot seen by the source, or completed by one handler, can be ahead of slower jobs that are still writing older slots.
+
+Shipstern has no database checkpoint or per-update acknowledgement API. Before advancing a slot checkpoint, track completion in the application or use the [block coordinator](/docs/outputs/block-coordinator). Store the checkpoint in the same database transaction as the data, or resume from an earlier slot with idempotent writes. Replay works only while the provider still holds that slot.
+
+With Kafka's `transactional_id` set, the sink writes a slot's records and commit marker in one Kafka transaction. Resume from the last committed marker, not the newest slot seen upstream.
+
+## Drain application writers on shutdown
+
+| Stop reason | Queued updates | Running jobs |
+| --- | --- | --- |
+| Signal | Dropped | Up to 30 seconds to finish |
+| Finite source completed | All run; no deadline | Up to 30 seconds after the queue empties |
+| Fatal source error | Not awaited | Not awaited |
+
+On a fatal source error, the run call returns the error at once. `run()` and `run_async()` then exit the process with status 1. A drain timeout logs a warning, and the run can still return `Ok(())` with handler work unfinished. Once a finite source completes, the runtime no longer acts on signals, so a stuck job can hold the process open.
+
+A handler that sends to an application-owned channel finishes when the send succeeds, while the writer can still have pending writes. When the run returns, the runtime drops its pipelines and their senders, so the channel closes once the queue is empty. Await the writer task with a timeout, since an abandoned job still holds a sender. Advance the durable checkpoint only after the writes succeed. The [handler example](/docs/runtime/handlers#forward-values-to-another-task) does this.
+
+## See also
+
+- [Runtime](/docs/runtime): run modes, worker limits and shutdown triggers.
+- [Handlers](/docs/runtime/handlers): bounded channels and returned errors.
+- [Run in production](/docs/runtime/production): deployment settings and replay recovery.
+- [Block coordinator](/docs/outputs/block-coordinator): complete-slot processing.

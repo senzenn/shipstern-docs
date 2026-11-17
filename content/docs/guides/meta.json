@@ -1,0 +1,21 @@
+{
+  "title": "Guides",
+  "description": "Step-by-step tutorials for common pipelines",
+  "icon": "ClipboardList",
+  "root": true,
+  "pages": [
+    "index",
+    "track-a-single-mint",
+    "watch-a-wallets-token-moves",
+    "track-many-accounts-with-a-cuckoo-filter",
+    "index-several-programs",
+    "index-transfers-into-postgres",
+    "resume-after-a-restart",
+    "backfill-then-stream-live",
+    "generate-a-parser-from-an-idl",
+    "decode-pump-fun-trade-events",
+    "pick-a-source-at-startup",
+    "act-on-preconfirmations",
+    "push-metrics-to-prometheus"
+  ]
+}

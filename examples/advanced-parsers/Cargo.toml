@@ -1,0 +1,22 @@
+[workspace]
+
+[package]
+name = "advanced-parsers"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+borsh = { version = "1", features = ["derive"] }
+prost = "0.14"
+prost-types = "0.14"
+shipstern-core = { version = "0.13.0", features = ["proto"] }
+shipstern-parser = "0.13.0"
+shipstern-proc-macro = { version = "0.13.0", features = ["proto", "program-events"] }
+
+[dev-dependencies]
+base64 = "0.22"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("serde"))'] }
